@@ -171,7 +171,7 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     saver.save(sess, FLAGS.logdir + '/' + exp_string +  '/model' + str(itr))
 
 
-def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0):
+def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0, train_set_init_ops=None, test_set_init_ops=None):
     SUMMARY_INTERVAL = 1
     SAVE_INTERVAL = 1
 
@@ -314,7 +314,7 @@ def test(model, saver, sess, exp_string, data_generator, test_num_updates=None):
         writer.writerow(ci95)
 
 
-def test_dataset(model, saver, sess, exp_string, data_generator, test_num_updates=None):
+def test_dataset(model, saver, sess, exp_string, data_generator, test_num_updates=None, test_set_init_ops=None):
     num_classes = data_generator.num_classes # for classification, 1 otherwise
 
     np.random.seed(1)
@@ -349,10 +349,11 @@ def test_dataset(model, saver, sess, exp_string, data_generator, test_num_update
     
 
 def main():
+    print(FLAGS.gpu_id)
     if FLAGS.gpu_id == -1:
         os.envirion["CUDA_VISIBLE_DEVICES"] = ""
     else:
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAG.gpu_id)
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu_id)
     
     if FLAGS.datasource == 'sinusoid':
         if FLAGS.train:
@@ -476,8 +477,9 @@ def main():
 
     saver = loader = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES), max_to_keep=10)
 
-    config = tf.ConfigProto()
-    sess = tf.Session(config=config)
+    #config = tf.ConfigProto()
+    #sess = tf.Session(config = tf.ConfigProto(log_device_placement=True))
+    sess = tf.InteractiveSession()
 
     if FLAGS.train == False:
         # change to original meta batch size when loading model.
@@ -525,12 +527,12 @@ def main():
 
     if FLAGS.train:
         if FLAGS.datasource == 'absa':
-            train_dataset(model, saver, sess, exp_string, data_generator, resume_itr)
+            train_dataset(model, saver, sess, exp_string, data_generator, resume_itr, train_set_init_ops, test_set_init_ops)
         else:
             train(model, saver, sess, exp_string, data_generator, resume_itr)
     else:
         if FLAGS.datasource == 'absa':
-            test_dataset(model, saver, sess, exp_string, data_generator, test_num_updates)
+            test_dataset(model, saver, sess, exp_string, data_generator, test_num_updates, test_set_init_ops)
         else:
             test(model, saver, sess, exp_string, data_generator, test_num_updates)
 

@@ -108,8 +108,8 @@ class MAML:
                 if FLAGS.stop_grad:
                     grads = [tf.stop_gradient(grad) for grad in grads]
                 gradients = dict(zip(weights.keys(), grads))
-                print([(c,type(weights[c])) for c in weights.keys()])
-                print([(c,type(gradients[c])) for c in weights.keys()])
+                #print([(c,type(weights[c])) for c in weights.keys()])
+                #print([(c,type(gradients[c])) for c in weights.keys()])
                 
                 fast_weights = dict(zip(weights.keys(), [weights[key] - self.update_lr*gradients[key] if key!='emb' else weights[key] - self.update_lr*tf.convert_to_tensor(gradients[key]) for key in weights.keys()]))
                 output = self.forward(inputb, fast_weights, reuse=True)
@@ -122,8 +122,8 @@ class MAML:
                     if FLAGS.stop_grad:
                         grads = [tf.stop_gradient(grad) for grad in grads]
                     gradients = dict(zip(fast_weights.keys(), grads))
-                    print([(c,type(fast_weights[c])) for c in fast_weights.keys()])
-                    print([(c,type(gradients[c])) for c in fast_weights.keys()])
+                    #print([(c,type(fast_weights[c])) for c in fast_weights.keys()])
+                    #print([(c,type(gradients[c])) for c in fast_weights.keys()])
                     fast_weights = dict(zip(fast_weights.keys(), [fast_weights[key] - self.update_lr*gradients[key] if key!='emb' else fast_weights[key] - self.update_lr*tf.convert_to_tensor(gradients[key]) for key in fast_weights.keys()]))
                     output = self.forward(inputb, fast_weights, reuse=True)
                     task_outputbs.append(output)
@@ -132,9 +132,15 @@ class MAML:
                 task_output = [task_outputa, task_outputbs, task_lossa, task_lossesb]
 
                 if self.classification:
-                    task_accuracya = tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputa), 1), tf.argmax(labela, 1))
+                    if FLAGS.datasource == 'absa':
+                        task_accuracya = tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputa), 1), labela)
+                    else:
+                        task_accuracya = tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputa), 1), tf.argmax(labela, 1))
                     for j in range(num_updates):
-                        task_accuraciesb.append(tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputbs[j]), 1), tf.argmax(labelb, 1)))
+                        if FLAGS.datasource =='absa':
+                            task_accuraciesb.append(tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputbs[j]), 1), labelb))
+                        else:
+                            task_accuraciesb.append(tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputbs[j]), 1), tf.argmax(labelb, 1)))
                     task_output.extend([task_accuracya, task_accuraciesb])
 
                 return task_output
@@ -300,12 +306,12 @@ class MAML:
                     self.cells[k][n].update_weights(weights[k+"_%d_"%n+"w"], weights[k+"_%d_"%n+"b"])
 
         text_tok, ctgr_tok = inp
-        print(text_tok.shape)
+        #print(text_tok.shape)
         #text_tok = tf.expand_dims(text_tok, axis=-1)
         #ctgr_tok = tf.expand_dims(ctgr_tok, axis=-1)
         text_vec = tf.nn.embedding_lookup(weights['emb'], text_tok)
         ctgr_vec = tf.nn.embedding_lookup(weights['emb'], ctgr_tok)
-        print(text_vec.shape)
+        #print(text_vec.shape)
 
         output = text_vec
         for n in range(self.num_layers):
@@ -314,8 +320,8 @@ class MAML:
 
             state_fw = cell_fw.zero_state(self.batch_size, tf.float32)
             state_bw = cell_bw.zero_state(self.batch_size, tf.float32)
-            print("OUTPUT.SHAPE:")
-            print(output.shape)
+            #print("OUTPUT.SHAPE:")
+            #print(output.shape)
             (output_fw, output_bw), last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, output,initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_text_'+str(n), dtype = tf.float32)
 
             output = tf.concat([output_fw, output_bw], axis = 2)
@@ -336,8 +342,8 @@ class MAML:
         #ctgr_hidden = output
         ctgr_hidden = tf.concat([output[:,0,:],output[:,-1,:]],axis=-1)
 
-        print("TEXT_HIDDEN.SHAPE:"+str(text_hidden.shape))
-        print("CTGR_HIDDEN.SHAPE:"+str(ctgr_hidden.shape))
+        #print("TEXT_HIDDEN.SHAPE:"+str(text_hidden.shape))
+        #print("CTGR_HIDDEN.SHAPE:"+str(ctgr_hidden.shape))
         cat_hidden = tf.nn.relu(tf.concat([text_hidden, ctgr_hidden], axis = -1))
         cat_hidden_2 = tf.nn.relu(tf.matmul(cat_hidden, weights['w1']) + weights['b1'])
         final_output = tf.matmul(cat_hidden_2, weights['w2']) + weights['b2']
