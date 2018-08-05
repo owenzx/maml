@@ -1,0 +1,1 @@
+python main.py --datasource=absa --logdir=logs/absa/ --metatrain_epochs=20 --norm=None --update_batch_size=1 --meta_batch_size=32 --update_lr=0.4 --num_updates=1 --pretrain_embedding=glove --vocab_size=40000 --pretrain_embedding_path=/load/glove.6B.100d.txt

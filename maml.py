@@ -10,7 +10,8 @@ except KeyError as e:
           file=sys.stderr)
 
 from tensorflow.python.platform import flags
-from utils import mse, xent, conv_block, normalize
+from utils import mse, xent, conv_block, normalize, read_pretrained_embeddings, rnncell, build_cells, xent_onehot
+from customized_cells import Customized_BasicLSTMCell
 
 FLAGS = flags.FLAGS
 
@@ -44,8 +45,24 @@ class MAML:
             else:
                 self.channels = 1
             self.img_size = int(np.sqrt(self.dim_input/self.channels))
+        elif FLAGS.datasource == 'absa':
+            self.forward = self.forward_rnn
+            self.construct_weights = self.construct_rnn_weights
+            self.vocab_size = 40000 + 2 #default choice
+            self.dim_hidden =200
+            self.dim_output = 3
+            self.classification = True
+            self.loss_func = xent_onehot
+            self.dim_emb = 100
+            self.num_layers = 3
+            self.batch_size = FLAGS.update_batch_size
+            #Other hyper-parameters
         else:
             raise ValueError('Unrecognized data source.')
+    
+    def set_pretrain_embedding(self, w, word2idx):
+        self.pretrain_embedding = w
+        self.vocab_size = len(word2idx)
 
     def construct_model(self, input_tensors=None, prefix='metatrain_'):
         # a: training data for inner gradient, b: test data for meta gradient
@@ -91,7 +108,10 @@ class MAML:
                 if FLAGS.stop_grad:
                     grads = [tf.stop_gradient(grad) for grad in grads]
                 gradients = dict(zip(weights.keys(), grads))
-                fast_weights = dict(zip(weights.keys(), [weights[key] - self.update_lr*gradients[key] for key in weights.keys()]))
+                print([(c,type(weights[c])) for c in weights.keys()])
+                print([(c,type(gradients[c])) for c in weights.keys()])
+                
+                fast_weights = dict(zip(weights.keys(), [weights[key] - self.update_lr*gradients[key] if key!='emb' else weights[key] - self.update_lr*tf.convert_to_tensor(gradients[key]) for key in weights.keys()]))
                 output = self.forward(inputb, fast_weights, reuse=True)
                 task_outputbs.append(output)
                 task_lossesb.append(self.loss_func(output, labelb))
@@ -102,7 +122,9 @@ class MAML:
                     if FLAGS.stop_grad:
                         grads = [tf.stop_gradient(grad) for grad in grads]
                     gradients = dict(zip(fast_weights.keys(), grads))
-                    fast_weights = dict(zip(fast_weights.keys(), [fast_weights[key] - self.update_lr*gradients[key] for key in fast_weights.keys()]))
+                    print([(c,type(fast_weights[c])) for c in fast_weights.keys()])
+                    print([(c,type(gradients[c])) for c in fast_weights.keys()])
+                    fast_weights = dict(zip(fast_weights.keys(), [fast_weights[key] - self.update_lr*gradients[key] if key!='emb' else fast_weights[key] - self.update_lr*tf.convert_to_tensor(gradients[key]) for key in fast_weights.keys()]))
                     output = self.forward(inputb, fast_weights, reuse=True)
                     task_outputbs.append(output)
                     task_lossesb.append(self.loss_func(output, labelb))
@@ -117,7 +139,8 @@ class MAML:
 
                 return task_output
 
-            if FLAGS.norm is not 'None':
+            #using is not in the original repo is actually a bug?
+            if FLAGS.norm != 'None':
                 # to initialize the batch norm vars, might want to combine this, and not run idx 0 twice.
                 unused = task_metalearn((self.inputa[0], self.inputb[0], self.labela[0], self.labelb[0]), False)
 
@@ -223,5 +246,105 @@ class MAML:
             hidden4 = tf.reduce_mean(hidden4, [1, 2])
 
         return tf.matmul(hidden4, weights['w5']) + weights['b5']
+
+    def construct_rnn_weights(self):
+        weights = {}
+        self.cells = {}
+
+        dtype = tf.float32
+        fc_initializer = tf.contrib.layers.xavier_initializer(dtype=dtype)
+        if FLAGS.pretrain_embedding == 'none':
+            emb_initializer = tf.contrib.layers.xavier_initializer(dtype=dtype)
+            weights['emb'] = tf.get_variable('emb',[self.vocab_size, self.dim_emb], initializer=emb_initializer)
+        elif FLAGS.pretrain_embedding == 'glove':
+            emb_initializer = tf.constant_initializer(self.pretrain_embedding)
+            weights['emb'] = tf.get_variable('emb', [self.vocab_size, self.dim_emb], initializer = emb_initializer, trainable=True)
+            
+        weights['w1'] = tf.get_variable('w1', [8*self.dim_hidden, self.dim_hidden], initializer = fc_initializer)
+        weights['b1'] = tf.Variable(tf.zeros([self.dim_hidden]), name = 'b1')
+        weights['w2'] = tf.get_variable('w2', [self.dim_hidden, self.dim_output], initializer = fc_initializer)
+        weights['b2'] = tf.Variable(tf.zeros([self.dim_output]), name='b2')
+
+
+
+        self.cells['text_cell_forw'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
+        self.cells['text_cell_back'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
+        self.cells['ctgr_cell_forw'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
+        self.cells['ctgr_cell_back'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
+
+        #All the rnn cells must be built so that their weights can be accessed
+        build_cells(self.cells['text_cell_forw'],[self.dim_emb, 2*self.dim_hidden, 2*self.dim_hidden])
+        build_cells(self.cells['text_cell_back'],[self.dim_emb, 2*self.dim_hidden, 2*self.dim_hidden])
+        build_cells(self.cells['ctgr_cell_forw'],[self.dim_emb, 2*self.dim_hidden, 2*self.dim_hidden])
+        build_cells(self.cells['ctgr_cell_back'],[self.dim_emb, 2*self.dim_hidden, 2*self.dim_hidden])
+
+
+        #Note that currently, the following code only works for LSTM cells 
+        for i, c in enumerate(self.cells['text_cell_forw']):
+            weights['text_cell_forw_%d_w'%i], weights['text_cell_forw_%d_b'%i] = c.weights
+        for i, c in enumerate(self.cells['text_cell_back']):
+            weights['text_cell_back_%d_w'%i], weights['text_cell_back_%d_b'%i] = c.weights
+        for i, c in enumerate(self.cells['ctgr_cell_forw']):
+            weights['ctgr_cell_forw_%d_w'%i], weights['ctgr_cell_forw_%d_b'%i] = c.weights
+        for i, c in enumerate(self.cells['ctgr_cell_back']):
+            weights['ctgr_cell_back_%d_w'%i], weights['ctgr_cell_back_%d_b'%i] = c.weights
+        #print([type(weights[c]) for c in weights.keys()])
+        
+        return weights
+
+
+    def forward_rnn(self, inp, weights, reuse=False, scope=''):
+        #first update the weights of all the rnn cells
+        for k in self.cells.keys():
+            for n in range(self.num_layers):
+                    self.cells[k][n].update_weights(weights[k+"_%d_"%n+"w"], weights[k+"_%d_"%n+"b"])
+
+        text_tok, ctgr_tok = inp
+        print(text_tok.shape)
+        #text_tok = tf.expand_dims(text_tok, axis=-1)
+        #ctgr_tok = tf.expand_dims(ctgr_tok, axis=-1)
+        text_vec = tf.nn.embedding_lookup(weights['emb'], text_tok)
+        ctgr_vec = tf.nn.embedding_lookup(weights['emb'], ctgr_tok)
+        print(text_vec.shape)
+
+        output = text_vec
+        for n in range(self.num_layers):
+            cell_fw = self.cells['text_cell_forw'][n]
+            cell_bw = self.cells['text_cell_back'][n]
+
+            state_fw = cell_fw.zero_state(self.batch_size, tf.float32)
+            state_bw = cell_bw.zero_state(self.batch_size, tf.float32)
+            print("OUTPUT.SHAPE:")
+            print(output.shape)
+            (output_fw, output_bw), last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, output,initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_text_'+str(n), dtype = tf.float32)
+
+            output = tf.concat([output_fw, output_bw], axis = 2)
+        #text_hidden = output
+        text_hidden = tf.concat([output[:,0,:],output[:,-1,:]],axis=-1)
+
+        output = ctgr_vec
+        for n in range(self.num_layers):
+            cell_fw = self.cells['ctgr_cell_forw'][n]
+            cell_bw = self.cells['ctgr_cell_back'][n]
+
+            state_fw = cell_fw.zero_state(self.batch_size, tf.float32)
+            state_bw = cell_bw.zero_state(self.batch_size, tf.float32)
+
+            (output_fw, output_bw), last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, output,initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_ctgr_'+str(n), dtype = tf.float32)
+
+            output = tf.concat([output_fw, output_bw], axis = 2)
+        #ctgr_hidden = output
+        ctgr_hidden = tf.concat([output[:,0,:],output[:,-1,:]],axis=-1)
+
+        print("TEXT_HIDDEN.SHAPE:"+str(text_hidden.shape))
+        print("CTGR_HIDDEN.SHAPE:"+str(ctgr_hidden.shape))
+        cat_hidden = tf.nn.relu(tf.concat([text_hidden, ctgr_hidden], axis = -1))
+        cat_hidden_2 = tf.nn.relu(tf.matmul(cat_hidden, weights['w1']) + weights['b1'])
+        final_output = tf.matmul(cat_hidden_2, weights['w2']) + weights['b2']
+        return final_output
+        
+
+        
+
 
 

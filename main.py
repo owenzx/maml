@@ -28,10 +28,12 @@ import numpy as np
 import pickle
 import random
 import tensorflow as tf
+import os
 
 from data_generator import DataGenerator
 from maml import MAML
 from tensorflow.python.platform import flags
+from utils import read_pretrained_embeddings
 
 FLAGS = flags.FLAGS
 
@@ -50,6 +52,9 @@ flags.DEFINE_integer('update_batch_size', 5, 'number of examples used for inner 
 flags.DEFINE_float('update_lr', 1e-3, 'step size alpha for inner gradient update.') # 0.1 for omniglot
 flags.DEFINE_integer('num_updates', 1, 'number of inner gradient updates during training.')
 
+flags.DEFINE_integer('pretrain_epochs', 0, 'number of pre-training epochs')
+flags.DEFINE_integer('metatrain_epochs', 0, 'number of metatraining epochs')
+
 ## Model options
 flags.DEFINE_string('norm', 'batch_norm', 'batch_norm, layer_norm, or None')
 flags.DEFINE_integer('num_filters', 64, 'number of filters for conv nets -- 32 for miniimagenet, 64 for omiglot.')
@@ -66,6 +71,14 @@ flags.DEFINE_integer('test_iter', -1, 'iteration to load model (-1 for latest mo
 flags.DEFINE_bool('test_set', False, 'Set to true to test on the the test set, False for the validation set.')
 flags.DEFINE_integer('train_update_batch_size', -1, 'number of examples used for gradient update during training (use if you want to test with a different number).')
 flags.DEFINE_float('train_update_lr', -1, 'value of inner gradient step step during training. (use if you want to test with a different value)') # 0.1 for omniglot
+
+flags.DEFINE_bool('zeroshot', False, 'if true, set number of updates when testing to zero.')
+
+flags.DEFINE_string('pretrain_embedding', 'none', 'what kind of pretrained word embeddings to load')
+flags.DEFINE_integer('vocab_size', 40000, 'the size of vocabulary, default set to 40000, which is a common setting for GloVe')
+flags.DEFINE_string('pretrain_embedding_path', '', 'the path of the pretrained embedding file')
+
+flags.DEFINE_integer('gpu_id', -1, 'the id of the gpu to use')
 
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100
@@ -157,6 +170,94 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
 
     saver.save(sess, FLAGS.logdir + '/' + exp_string +  '/model' + str(itr))
 
+
+def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0):
+    SUMMARY_INTERVAL = 1
+    SAVE_INTERVAL = 1
+
+    PRINT_INTERVAL = 1
+    TEST_PRINT_INTERVAL = PRINT_INTERVAL
+
+    if FLAGS.log:
+        train_writer = tf.summary.FileWriter(FLAGS.logdir + '/' + exp_string, sess.graph)
+    print('Done initializing, starting training.')
+    prelosses, postlosses = [], []
+    test_prelosses, test_postlosses = [], []
+
+    num_classes = data_generator.num_classes # for classification, 1 otherwise
+    multitask_weights, reg_weights = [], []
+
+    init_op_inputa, init_op_inputb, init_op_labela, init_op_labelb = train_set_init_ops
+
+    test_init_op_inputa, test_init_op_inputb, test_init_op_labela, test_init_op_labelb = test_set_init_ops
+
+    itr = 0
+    for epoch in range(resume_epoch, FLAGS.pretrain_epochs + FLAGS.metatrain_epochs):
+        feed_dict = {}
+        sess.run(init_op_inputa)
+        sess.run(init_op_labela)
+        sess.run(init_op_inputb)
+        sess.run(init_op_labelb)
+        sess.run(test_init_op_inputa)
+        sess.run(test_init_op_labela)
+        sess.run(test_init_op_inputb)
+        sess.run(test_init_op_labelb)
+
+        if epoch < FLAGS.pretrain_epochs:
+            input_tensors = [model.pretrain_op]
+        else:
+            input_tensors = [model.metatrain_op]
+
+
+        while True:
+            try:
+                itr += 1
+                if (itr % SUMMARY_INTERVAL == 0):
+                    input_tensors.extend([model.summ_op, model.total_loss1, model.total_losses2[FLAGS.num_updates-1]])
+                    if model.classification:
+                        input_tensors.extend([model.total_accuracy1, model.total_accuracies2[FLAGS.num_updates-1]])                
+                result = sess.run(input_tensors)
+                if itr % SUMMARY_INTERVAL == 0:
+                    prelosses.append(result[-2])
+                    if FLAGS.log:
+                        train_writer.add_summary(result[1], itr)
+                    postlosses.append(result[-1])                
+            except tf.errors.OutOfRangeError:
+                break
+
+
+
+        if epoch % PRINT_INTERVAL == 0:
+            if epoch < FLAGS.pretrain_epochs:
+                print_str = 'Pretrain Epoch ' + str(epoch)
+            else:
+                print_str = 'Epoch ' + str(epoch - FLAGS.pretrain_epochs)
+            print_str += ': ' + str(np.mean(prelosses)) + ', ' + str(np.mean(postlosses))
+            print(print_str)
+            prelosses, postlosses = [], []
+
+        if epoch % SAVE_INTERVAL == 0:
+            saver.save(sess, FLAGS.logdir + '/' + exp_string + '/model' + str(epoch))
+
+        if epoch % TEST_PRINT_INTERVAL == 0 and FLAGS.datasource !='sinusoid':
+            while True:
+                try:
+                    feed_dict = {}
+                    if model.classification:
+                        input_tensors = [model.metaval_total_accuracy1, model.metaval_total_accuracies2[FLAGS.num_updates-1], model.summ_op]
+                    else:
+                        input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1], model.summ_op]
+                    result = sess.run(input_tensors, feed_dict)
+                    test_prelosses.append(result[-2])
+                    test_postlosses.append(result[-1])
+                except tf.errors.OutOfRangeError:
+                    break
+                
+            print('Validation results: ' + str(np.mean(test_prelosses)) + ', ' + str(np.mean(test_postlosses)))
+            test_prelosses, test_postlosses = [], []
+
+    saver.save(sess, FLAGS.logdir + '/' + exp_string +  '/model' + str(itr))
+
 # calculated for omniglot
 NUM_TEST_POINTS = 600
 
@@ -192,7 +293,7 @@ def test(model, saver, sess, exp_string, data_generator, test_num_updates=None):
         else:  # this is for sinusoid
             result = sess.run([model.total_loss1] +  model.total_losses2, feed_dict)
         metaval_accuracies.append(result)
-
+    print(metaval_accuracies)
     metaval_accuracies = np.array(metaval_accuracies)
     means = np.mean(metaval_accuracies, 0)
     stds = np.std(metaval_accuracies, 0)
@@ -212,7 +313,47 @@ def test(model, saver, sess, exp_string, data_generator, test_num_updates=None):
         writer.writerow(stds)
         writer.writerow(ci95)
 
+
+def test_dataset(model, saver, sess, exp_string, data_generator, test_num_updates=None):
+    num_classes = data_generator.num_classes # for classification, 1 otherwise
+
+    np.random.seed(1)
+    random.seed(1)
+
+    metaval_accuracies = []
+
+    test_init_op_inputa, test_init_op_inputb, test_init_op_labela, test_init_op_labelb = test_set_init_ops
+
+    sess.run(test_init_op_inputa)
+    sess.run(test_init_op_labela)
+    sess.run(test_init_op_inputb)
+    sess.run(test_init_op_labelb)
+
+    feed_dict = {model.meta_lr : 0.0}
+    test_prelosses, test_postlosses = [], []
+
+    while True:
+        try:
+            feed_dict = {}
+            if model.classification:
+                input_tensors = [model.metaval_total_accuracy1, model.metaval_total_accuracies2[FLAGS.num_updates-1], model.summ_op]
+            else:
+                input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1], model.summ_op]
+            result = sess.run(input_tensors, feed_dict)
+            test_prelosses.append(result[-2])
+            test_postlosses.append(result[-1])
+        except tf.errors.OutOfRangeError:
+            break
+        
+    print('Test results: ' + str(np.mean(test_prelosses)) + ', ' + str(np.mean(test_postlosses)))
+    
+
 def main():
+    if FLAGS.gpu_id == -1:
+        os.envirion["CUDA_VISIBLE_DEVICES"] = ""
+    else:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAG.gpu_id)
+    
     if FLAGS.datasource == 'sinusoid':
         if FLAGS.train:
             test_num_updates = 5
@@ -226,11 +367,19 @@ def main():
                 test_num_updates = 10
         else:
             test_num_updates = 10
+    
+    if FLAGS.zeroshot == True:
+        test_num_updates = 0
 
     if FLAGS.train == False:
         orig_meta_batch_size = FLAGS.meta_batch_size
         # always use meta batch size of 1 when testing.
         FLAGS.meta_batch_size = 1
+
+
+    if FLAGS.pretrain_embedding != 'none':
+        weights_emb, word2idx = read_pretrained_embeddings()
+
 
     if FLAGS.datasource == 'sinusoid':
         data_generator = DataGenerator(FLAGS.update_batch_size*2, FLAGS.meta_batch_size)
@@ -245,6 +394,8 @@ def main():
                     data_generator = DataGenerator(FLAGS.update_batch_size+15, FLAGS.meta_batch_size)  # only use one datapoint for testing to save memory
                 else:
                     data_generator = DataGenerator(FLAGS.update_batch_size*2, FLAGS.meta_batch_size)  # only use one datapoint for testing to save memory
+            elif FLAGS.datasource == 'absa':
+                data_generator = DataGenerator(FLAGS.update_batch_size, FLAGS.meta_batch_size)
             else:
                 data_generator = DataGenerator(FLAGS.update_batch_size*2, FLAGS.meta_batch_size)  # only use one datapoint for testing to save memory
 
@@ -265,6 +416,8 @@ def main():
         if FLAGS.train: # only construct training model if needed
             random.seed(5)
             image_tensor, label_tensor = data_generator.make_data_tensor()
+            print(image_tensor.shape)
+            print(label_tensor.shape)
             inputa = tf.slice(image_tensor, [0,0,0], [-1,num_classes*FLAGS.update_batch_size, -1])
             inputb = tf.slice(image_tensor, [0,num_classes*FLAGS.update_batch_size, 0], [-1,-1,-1])
             labela = tf.slice(label_tensor, [0,0,0], [-1,num_classes*FLAGS.update_batch_size, -1])
@@ -278,11 +431,43 @@ def main():
         labela = tf.slice(label_tensor, [0,0,0], [-1,num_classes*FLAGS.update_batch_size, -1])
         labelb = tf.slice(label_tensor, [0,num_classes*FLAGS.update_batch_size, 0], [-1,-1,-1])
         metaval_input_tensors = {'inputa': inputa, 'inputb': inputb, 'labela': labela, 'labelb': labelb}
+    elif FLAGS.datasource == 'absa':
+#        tf_data_load = True
+
+#        if FLAGS.train:
+#            random.seed(5)
+#            text_tensor, cgtr_tensor, label_tensor = data_generator.make_data_tensor(word2idx)
+#            input_tensors = {}
+#        random.seed(6)
+#        text_tensor, cgtr_tensor, label_tensor = data_generator.make_data_tensor(word2idx, train=False)
+        #TODO
+        #not loading the dataset into the graph
+        tf_data_load = True
+        if FLAGS.train:
+            random.seed(5)
+            (inputa, inputb, labela, labelb), train_set_init_ops = data_generator.make_data_tensor(word2idx)
+            #sess = tf.InteractiveSession()
+            #sess.run(train_set_init_ops[0])
+            #print("DEBUG START:")
+            #print(inputa)
+            #x1, x2 = sess.run(inputa)
+
+            
+            input_tensors = {'inputa':inputa, 'inputb': inputb, 'labela':labela, 'labelb':labelb}
+            #input_tensors = {'inputa': {'text':tf.placeholder(tf.float32), 'ctgr':tf.placeholder(tf.float32)}, 'inputb': {'text':tf.placeholder(tf.float32), 'ctgr':tf.placeholder(tf.float32)}, 'labela': tf.placeholder(tf.float32), 'labelb': tf.placeholder(tf.float32)}
+        random.seed(6)
+        (inputa, inputb, labela, labelb), test_set_init_ops = data_generator.make_data_tensor(word2idx, train=False)
+        metaval_input_tensors = {'inputa':inputa, 'inputb': inputb, 'labela':labela, 'labelb':labelb}
+        #metaval_input_tensors = {'inputa': {'text':tf.placeholder(tf.float32), 'ctgr':tf.placeholder(tf.float32)}, 'inputb': {'text':tf.placeholder(tf.float32), 'ctgr':tf.placeholder(tf.float32)}, 'labela': tf.placeholder(tf.float32), 'labelb': tf.placeholder(tf.float32)}
     else:
         tf_data_load = False
         input_tensors = None
 
+        
+
     model = MAML(dim_input, dim_output, test_num_updates=test_num_updates)
+    if FLAGS.pretrain_embedding!='none':
+        model.set_pretrain_embedding(weights_emb, word2idx)
     if FLAGS.train or not tf_data_load:
         model.construct_model(input_tensors=input_tensors, prefix='metatrain_')
     if tf_data_load:
@@ -291,7 +476,8 @@ def main():
 
     saver = loader = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES), max_to_keep=10)
 
-    sess = tf.InteractiveSession()
+    config = tf.ConfigProto()
+    sess = tf.Session(config=config)
 
     if FLAGS.train == False:
         # change to original meta batch size when loading model.
@@ -338,9 +524,15 @@ def main():
             saver.restore(sess, model_file)
 
     if FLAGS.train:
-        train(model, saver, sess, exp_string, data_generator, resume_itr)
+        if FLAGS.datasource == 'absa':
+            train_dataset(model, saver, sess, exp_string, data_generator, resume_itr)
+        else:
+            train(model, saver, sess, exp_string, data_generator, resume_itr)
     else:
-        test(model, saver, sess, exp_string, data_generator, test_num_updates)
+        if FLAGS.datasource == 'absa':
+            test_dataset(model, saver, sess, exp_string, data_generator, test_num_updates)
+        else:
+            test(model, saver, sess, exp_string, data_generator, test_num_updates)
 
 if __name__ == "__main__":
     main()

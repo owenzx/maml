@@ -5,8 +5,8 @@ import random
 import tensorflow as tf
 
 from tensorflow.python.platform import flags
-from utils import get_images
-
+from utils import get_images, get_pad_batch, get_pad_metabatch, get_batch_labels, get_metabatch_labels
+from absa_reader import read_absa_restaurants
 FLAGS = flags.FLAGS
 
 class DataGenerator(object):
@@ -20,6 +20,7 @@ class DataGenerator(object):
             num_samples_per_class: num samples to generate per class in one batch
             batch_size: size of meta batch size (e.g. number of functions)
         """
+        #Here batch_size means META batch size
         self.batch_size = batch_size
         self.num_samples_per_class = num_samples_per_class
         self.num_classes = 1  # by default 1 (only relevant for classification problems)
@@ -32,6 +33,7 @@ class DataGenerator(object):
             self.dim_input = 1
             self.dim_output = 1
         elif 'omniglot' in FLAGS.datasource:
+            self.make_data_tensor = self.make_data_tensor_image
             self.num_classes = config.get('num_classes', FLAGS.num_classes)
             self.img_size = config.get('img_size', (28, 28))
             self.dim_input = np.prod(self.img_size)
@@ -54,6 +56,7 @@ class DataGenerator(object):
                 self.metaval_character_folders = character_folders[num_train:num_train+num_val]
             self.rotations = config.get('rotations', [0, 90, 180, 270])
         elif FLAGS.datasource == 'miniimagenet':
+            self.make_data_tensor = self.make_data_tensor_image
             self.num_classes = config.get('num_classes', FLAGS.num_classes)
             self.img_size = config.get('img_size', (84, 84))
             self.dim_input = np.prod(self.img_size)*3
@@ -75,11 +78,118 @@ class DataGenerator(object):
             self.metatrain_character_folders = metatrain_folders
             self.metaval_character_folders = metaval_folders
             self.rotations = config.get('rotations', [0])
+        elif FLAGS.datasource == 'absa':
+            self.make_data_tensor = self.make_data_tensor_absa
+            self.num_classes = config.get('num_classes', FLAGS.num_classes)
+#            from data.semeval.data_loader import SemEvalDataLoader
+#            d_loader = SemEvalDataLoader()
+#            self.train_data = d_loader.get_data(task="BD", years=2016, datasets = "train", only_semeval=True) 
+            self.dim_output = self.num_classes
+            data_train, data_dev, data_test = read_absa_restaurants(datafolder='./data/semeval_task5')
+            train_dataset = data_train
+            if FLAGS.test_set:
+                val_dataset = data_test
+            else:
+                val_dataset = data_dev
+            self.train_dataset = train_dataset
+            self.val_dataset = val_dataset
+            
+            self.dim_output = 3
+            self.dim_input = -1 # do not use this value
+
         else:
             raise ValueError('Unrecognized data source')
 
+    
+    def make_data_tensor_absa(self, word2idx, train=True):
+        if train:
+            dataset = self.train_dataset
+        else:
+            dataset = self.val_dataset
+        
+        dataset_size = len(dataset['seq1'])
 
-    def make_data_tensor(self, train=True):
+        all_text = []
+        all_ctgr = []
+        all_label = []
+        #Shuffle once here
+        shuffled_index = np.random.permutation(dataset_size)
+        #print(dataset_size)
+        
+        #Have to do batching first, so have to view everything in a meta-batch a single batch
+        #total_batch_size = self.batch_size * self.num_samples_per_class
+
+        #dataset_size = int(dataset_size / total_batch_size) * total_batch_size
+        
+        dataset['labels'] = [x.lower() for x in dataset['labels']]
+
+        for i in range(dataset_size):
+            j = shuffled_index[i]
+            text = np.array([word2idx.get(x,word2idx['UNK']) for x in dataset['seq2'][j].split()])
+            ctgr = np.array([word2idx.get(x,word2idx['UNK']) for x in dataset['seq1'][j].lower().split()])
+            label = np.array(dataset['labels'].index(dataset['stance'][j]))
+            #text = np.expand_dims(text, axis=-1)
+            #ctgr = np.expand_dims(ctgr, axis=-1)
+            #label = np.expand_dims(label, axis=-1)
+            all_text.append(text)
+            all_ctgr.append(ctgr)
+            all_label.append(label)
+        padded_all_text = get_pad_batch(all_text, self.num_samples_per_class)
+        padded_all_ctgr = get_pad_batch(all_ctgr, self.num_samples_per_class)
+        all_label = get_batch_labels(all_label, self.num_samples_per_class)
+
+        meta_all_text = get_pad_metabatch(padded_all_text, self.batch_size)
+        meta_all_ctgr = get_pad_metabatch(padded_all_ctgr, self.batch_size)
+        meta_all_label = get_metabatch_labels(all_label, self.batch_size)    
+        #print(all_text[100])
+
+
+        #text_queue = tf.train.input_producer()
+        #ctgr_queue = tf.train.input_producer()
+        #label_queue = tf.train.input_producer()
+        dataset_text = tf.data.Dataset.from_generator(lambda: meta_all_text, tf.int32, tf.TensorShape([self.batch_size,self.num_samples_per_class,None]))
+        #dataset_text = dataset_text.padded_batch(self.batch_size, padded_shapes=[None])
+        dataset_ctgr = tf.data.Dataset.from_generator(lambda: meta_all_ctgr, tf.int32,tf.TensorShape([self.batch_size,self.num_samples_per_class,None]))
+        #dataset_ctgr = dataset_ctgr.padded_batch(self.batch_size, padded_shapes=[None])
+        dataset_label = tf.data.Dataset.from_generator(lambda: meta_all_label, tf.int32,tf.TensorShape([self.batch_size,self.num_samples_per_class]))
+        #dataset_label = dataset_label.batch(total_batch_size)
+
+        dataset_alla = tf.data.Dataset.zip((dataset_text, dataset_ctgr, dataset_label))
+    
+        dataset_allb = dataset_alla.map(lambda a,b,c:(a,b,c))
+
+        dataset_alla = dataset_alla.shuffle(dataset_size)
+        dataset_allb = dataset_allb.shuffle(dataset_size)
+        dataset_alla = dataset_alla.repeat()
+        dataset_allb = dataset_allb.repeat()
+
+        dataset_inputa = dataset_alla.map(lambda a,b,c :(a,b))
+        dataset_labela = dataset_alla.map(lambda a,b,c:c)
+        dataset_inputb = dataset_allb.map(lambda a,b,c:(a,b))
+        dataset_labelb = dataset_allb.map(lambda a,b,c:c)
+
+        iterator_inputa = tf.data.Iterator.from_structure(dataset_inputa.output_types, dataset_inputa.output_shapes)
+        iterator_labela = tf.data.Iterator.from_structure(dataset_labela.output_types, dataset_labela.output_shapes)
+        iterator_inputb = tf.data.Iterator.from_structure(dataset_inputb.output_types, dataset_inputb.output_shapes)
+        iterator_labelb = tf.data.Iterator.from_structure(dataset_labelb.output_types, dataset_labelb.output_shapes)
+
+        #print(dataset_inputa.output_shapes)
+        #print(dataset_labela.output_shapes)
+        
+        next_inputa = iterator_inputa.get_next()
+        next_inputb = iterator_inputb.get_next()
+        next_labela = iterator_labela.get_next()
+        next_labelb = iterator_labelb.get_next()
+
+        init_op_inputa = iterator_inputa.make_initializer(dataset_inputa)
+        init_op_labela = iterator_labela.make_initializer(dataset_labela)
+        init_op_inputb = iterator_inputb.make_initializer(dataset_inputb)
+        init_op_labelb = iterator_labelb.make_initializer(dataset_labelb)
+        #self.init_ops = (init_op_inputa, init_op_inputb, init_op_labela, init_op_labelb)
+        return (next_inputa, next_inputb, next_labela, next_labelb), (init_op_inputa, init_op_inputb, init_op_labela, init_op_labelb)
+
+
+    def make_data_tensor_image(self, train=True):
         if train:
             folders = self.metatrain_character_folders
             # number of tasks, not number of meta-iterations. (divide by metabatch size to measure)

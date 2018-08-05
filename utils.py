@@ -3,9 +3,11 @@ import numpy as np
 import os
 import random
 import tensorflow as tf
+import numpy as np
 
 from tensorflow.contrib.layers.python import layers as tf_layers
 from tensorflow.python.platform import flags
+from customized_cells import Customized_BasicLSTMCell
 
 FLAGS = flags.FLAGS
 
@@ -54,5 +56,84 @@ def mse(pred, label):
     return tf.reduce_mean(tf.square(pred-label))
 
 def xent(pred, label):
+    print("PRED.SHAPEL:"+str(pred.shape))
+    print("LABEL.SHAPE:"+str(label.shape))
     # Note - with tf version <=0.12, this loss has incorrect 2nd derivatives
     return tf.nn.softmax_cross_entropy_with_logits(logits=pred, labels=label) / FLAGS.update_batch_size
+
+def xent_onehot(pred, label):
+    label = tf.one_hot(label, 3)
+    return tf.nn.softmax_cross_entropy_with_logits(logits=pred, labels=label) / FLAGS.update_batch_size
+
+def read_pretrained_embeddings():
+    PAD_TOKEN = 0
+    word2idx = {'PAD': PAD_TOKEN}
+    weights = []
+    with open(FLAGS.pretrain_embedding_path, 'r') as file:
+        for index, line in enumerate(file):
+            values = line.split()
+            word = values[0]
+            word_weights = np.asarray(values[1:], dtype = np.float32)
+            word2idx[word] = index + 1
+            weights.append(word_weights)
+            if index + 1 == FLAGS.vocab_size:
+                break
+    dim_emb = len(weights[0])
+    weights.insert(0,np.random.randn(dim_emb))
+
+    UNK_TOKEN = len(weights)
+    word2idx['UNK'] = UNK_TOKEN
+    weights.append(np.random.randn(dim_emb))
+
+    weights = np.asarray(weights, dtype = np.float32)
+    
+    return weights, word2idx
+
+def rnncell(dim_hidden):
+    return Customized_BasicLSTMCell(num_units = dim_hidden, dtype=tf.float32)
+
+def build_cells(cells, dim_input):
+    for i,c in enumerate(cells):
+        fake_inp = tf.ones((2,dim_input[i]))
+        c.build(fake_inp.shape)
+
+
+def get_pad_batch(a, batch_size):
+    padded = []
+    for i in range(len(a)//batch_size):
+        batch_len = max([len(x) for x in a[i*batch_size:(i+1)*batch_size]])
+        batch = np.zeros((batch_size,batch_len), dtype=np.int32)
+        for j in range(batch_size):
+
+            batch[j,:len(a[i*batch_size+j])] = a[i*batch_size + j]
+        padded.append(batch)
+    return padded
+
+def get_pad_metabatch(a, batch_size):
+    padded = []
+    #print('A')
+    #print([x.shape for x in a])
+    for i in range(len(a)//batch_size):
+        batch_len = max([x.shape[1] for x in a[i*batch_size:(i+1)*batch_size]])
+        batch = np.zeros((batch_size, len(a[0]), batch_len), dtype=np.int32)
+        for j in range(batch_size):
+            #print(batch[j].shape)
+            #print(batch[j,:,:a[i*batch_size+j].shape[1]].shape)
+            #print(a[i*batch_size+j])
+            batch[j,:,:a[i*batch_size+j].shape[1]] = a[i*batch_size+j]
+        padded.append(batch)
+    return padded
+
+def get_batch_labels(a, batch_size):
+    result = []
+    for i in range(len(a)//batch_size):
+        batch = np.stack(a[i*batch_size:(i+1)*batch_size])
+        result.append(batch)
+    return result
+
+def get_metabatch_labels(a, batch_size):
+    result = []
+    for i in range(len(a)//batch_size):
+        batch = np.stack(a[i*batch_size:(i+1)*batch_size])
+        result.append(batch)
+    return result
