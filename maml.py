@@ -113,6 +113,7 @@ class MAML:
                 
                 fast_weights = dict(zip(weights.keys(), [weights[key] - self.update_lr*gradients[key] if key!='emb' else weights[key] - self.update_lr*tf.convert_to_tensor(gradients[key]) for key in weights.keys()]))
                 output = self.forward(inputb, fast_weights, reuse=True)
+                #output = tf.Print(output, [output])
                 task_outputbs.append(output)
                 task_lossesb.append(self.loss_func(output, labelb))
 
@@ -306,6 +307,7 @@ class MAML:
                     self.cells[k][n].update_weights(weights[k+"_%d_"%n+"w"], weights[k+"_%d_"%n+"b"])
 
         text_tok, ctgr_tok = inp
+        text_tok = tf.Print(text_tok, [text_tok])
         #print(text_tok.shape)
         #text_tok = tf.expand_dims(text_tok, axis=-1)
         #ctgr_tok = tf.expand_dims(ctgr_tok, axis=-1)
@@ -347,6 +349,7 @@ class MAML:
         cat_hidden = tf.nn.relu(tf.concat([text_hidden, ctgr_hidden], axis = -1))
         cat_hidden_2 = tf.nn.relu(tf.matmul(cat_hidden, weights['w1']) + weights['b1'])
         final_output = tf.matmul(cat_hidden_2, weights['w2']) + weights['b2']
+        #final_output = tf.Print(final_output, [final_output.shape[0], final_output.shape[1]])
         return final_output
         
 

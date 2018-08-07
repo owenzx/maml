@@ -35,6 +35,8 @@ from maml import MAML
 from tensorflow.python.platform import flags
 from utils import read_pretrained_embeddings
 
+from tensorflow.python.client import timeline
+
 FLAGS = flags.FLAGS
 
 ## Dataset/method options
@@ -198,29 +200,39 @@ def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0
         sess.run(init_op_labela)
         sess.run(init_op_inputb)
         sess.run(init_op_labelb)
-        sess.run(test_init_op_inputa)
-        sess.run(test_init_op_labela)
-        sess.run(test_init_op_inputb)
-        sess.run(test_init_op_labelb)
 
-        if epoch < FLAGS.pretrain_epochs:
-            input_tensors = [model.pretrain_op]
-        else:
-            input_tensors = [model.metatrain_op]
+#        if epoch < FLAGS.pretrain_epochs:
+#            input_tensors = [model.pretrain_op]
+#        else:
+#            input_tensors = [model.metatrain_op]
 
 
         while True:
             try:
+                if epoch < FLAGS.pretrain_epochs:
+                    input_tensors = [model.pretrain_op]
+                else:
+                    input_tensors = [model.metatrain_op]
+
                 itr += 1
+                print(itr)
                 if (itr % SUMMARY_INTERVAL == 0):
-                    input_tensors.extend([model.summ_op, model.total_loss1, model.total_losses2[FLAGS.num_updates-1]])
+                    #input_tensors.extend([model.summ_op, model.total_loss1, model.total_losses2[FLAGS.num_updates-1]])
+                    input_tensors.extend([model.total_loss1, model.total_losses2[FLAGS.num_updates-1]])
                     if model.classification:
                         input_tensors.extend([model.total_accuracy1, model.total_accuracies2[FLAGS.num_updates-1]])                
+                #options = tf.RunOptions(trace_level = tf.RunOptions.FULL_TRACE)
+                #run_metadata = tf.RunMetadata()
+                #result = sess.run(input_tensors, options = options, run_metadata = run_metadata)
+                #fetched_timeline = timeline.Timeline(run_metadata.step_stats)
+                #chrome_trace = fetched_timeline.generate_chrome_trace_format()
+                #with open('timeline_01.json', 'w') as f:
+                #    f.write(chrome_trace)
                 result = sess.run(input_tensors)
                 if itr % SUMMARY_INTERVAL == 0:
                     prelosses.append(result[-2])
-                    if FLAGS.log:
-                        train_writer.add_summary(result[1], itr)
+                    #if FLAGS.log:
+                    #    train_writer.add_summary(result[1], itr)
                     postlosses.append(result[-1])                
             except tf.errors.OutOfRangeError:
                 break
@@ -240,19 +252,25 @@ def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0
             saver.save(sess, FLAGS.logdir + '/' + exp_string + '/model' + str(epoch))
 
         if epoch % TEST_PRINT_INTERVAL == 0 and FLAGS.datasource !='sinusoid':
+            sess.run(test_init_op_inputa)
+            sess.run(test_init_op_labela)
+            sess.run(test_init_op_inputb)
+            sess.run(test_init_op_labelb)
             while True:
                 try:
                     feed_dict = {}
                     if model.classification:
-                        input_tensors = [model.metaval_total_accuracy1, model.metaval_total_accuracies2[FLAGS.num_updates-1], model.summ_op]
+                        input_tensors = [model.metaval_total_accuracy1, model.metaval_total_accuracies2[FLAGS.num_updates-1]]
                     else:
-                        input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1], model.summ_op]
+                        input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1]]
                     result = sess.run(input_tensors, feed_dict)
                     test_prelosses.append(result[-2])
                     test_postlosses.append(result[-1])
+                    print("running")
                 except tf.errors.OutOfRangeError:
                     break
                 
+            print('Test_prelosses: ' + str(test_prelosses) + ', Test_postlosses: ' + str(test_postlosses))
             print('Validation results: ' + str(np.mean(test_prelosses)) + ', ' + str(np.mean(test_postlosses)))
             test_prelosses, test_postlosses = [], []
 
@@ -336,9 +354,9 @@ def test_dataset(model, saver, sess, exp_string, data_generator, test_num_update
         try:
             feed_dict = {}
             if model.classification:
-                input_tensors = [model.metaval_total_accuracy1, model.metaval_total_accuracies2[FLAGS.num_updates-1], model.summ_op]
+                input_tensors = [model.metaval_total_accuracy1, model.metaval_total_accuracies2[FLAGS.num_updates-1]]
             else:
-                input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1], model.summ_op]
+                input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1]]
             result = sess.run(input_tensors, feed_dict)
             test_prelosses.append(result[-2])
             test_postlosses.append(result[-1])
@@ -457,8 +475,8 @@ def main():
             input_tensors = {'inputa':inputa, 'inputb': inputb, 'labela':labela, 'labelb':labelb}
             #input_tensors = {'inputa': {'text':tf.placeholder(tf.float32), 'ctgr':tf.placeholder(tf.float32)}, 'inputb': {'text':tf.placeholder(tf.float32), 'ctgr':tf.placeholder(tf.float32)}, 'labela': tf.placeholder(tf.float32), 'labelb': tf.placeholder(tf.float32)}
         random.seed(6)
-        (inputa, inputb, labela, labelb), test_set_init_ops = data_generator.make_data_tensor(word2idx, train=False)
-        metaval_input_tensors = {'inputa':inputa, 'inputb': inputb, 'labela':labela, 'labelb':labelb}
+        (t_inputa, t_inputb, t_labela, t_labelb), test_set_init_ops = data_generator.make_data_tensor(word2idx, train=False)
+        metaval_input_tensors = {'inputa':t_inputa, 'inputb': t_inputb, 'labela':t_labela, 'labelb':t_labelb}
         #metaval_input_tensors = {'inputa': {'text':tf.placeholder(tf.float32), 'ctgr':tf.placeholder(tf.float32)}, 'inputb': {'text':tf.placeholder(tf.float32), 'ctgr':tf.placeholder(tf.float32)}, 'labela': tf.placeholder(tf.float32), 'labelb': tf.placeholder(tf.float32)}
     else:
         tf_data_load = False

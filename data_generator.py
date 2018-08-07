@@ -109,6 +109,9 @@ class DataGenerator(object):
         
         dataset_size = len(dataset['seq1'])
 
+	#DELETE THIS AFTER DEBUGGING!!!
+        dataset_size = min(dataset_size, 50)
+
         all_text = []
         all_ctgr = []
         all_label = []
@@ -123,6 +126,7 @@ class DataGenerator(object):
         
         dataset['labels'] = [x.lower() for x in dataset['labels']]
 
+        print(dataset_size)
         for i in range(dataset_size):
             j = shuffled_index[i]
             text = np.array([word2idx.get(x,word2idx['UNK']) for x in dataset['seq2'][j].split()])
@@ -144,6 +148,7 @@ class DataGenerator(object):
         #print(all_text[100])
 
 
+        print(len(meta_all_text))
         #text_queue = tf.train.input_producer()
         #ctgr_queue = tf.train.input_producer()
         #label_queue = tf.train.input_producer()
@@ -160,8 +165,8 @@ class DataGenerator(object):
 
         dataset_alla = dataset_alla.shuffle(dataset_size)
         dataset_allb = dataset_allb.shuffle(dataset_size)
-        dataset_alla = dataset_alla.repeat()
-        dataset_allb = dataset_allb.repeat()
+        #dataset_alla = dataset_alla.repeat()
+        #dataset_allb = dataset_allb.repeat()
 
         dataset_inputa = dataset_alla.map(lambda a,b,c :(a,b))
         dataset_labela = dataset_alla.map(lambda a,b,c:c)

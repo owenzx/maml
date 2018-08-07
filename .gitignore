@@ -93,3 +93,8 @@ ENV/
 
 *~
 load/
+logs/
+
+tmp*
+
+.*
