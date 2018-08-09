@@ -6,7 +6,7 @@ import tensorflow as tf
 
 from tensorflow.python.platform import flags
 from utils import get_images, get_pad_batch, get_pad_metabatch, get_batch_labels, get_metabatch_labels
-from absa_reader import read_absa_restaurants
+from absa_reader import read_absa_restaurants, read_absa_laptops
 FLAGS = flags.FLAGS
 
 class DataGenerator(object):
@@ -85,7 +85,10 @@ class DataGenerator(object):
 #            d_loader = SemEvalDataLoader()
 #            self.train_data = d_loader.get_data(task="BD", years=2016, datasets = "train", only_semeval=True) 
             self.dim_output = self.num_classes
-            data_train, data_dev, data_test = read_absa_restaurants(datafolder='./data/semeval_task5')
+            if FLAGS.absa_domain == 'restaurant':
+                data_train, data_dev, data_test = read_absa_restaurants(datafolder='./data/semeval_task5')
+            elif FLAGS.absa_domain == 'laptop':
+                data_train, data_dev, data_test = read_absa_laptops(datafolder='./data/semeval_task5')
             train_dataset = data_train
             if FLAGS.test_set:
                 val_dataset = data_test
@@ -110,7 +113,7 @@ class DataGenerator(object):
         dataset_size = len(dataset['seq1'])
 
 	#DELETE THIS AFTER DEBUGGING!!!
-        dataset_size = min(dataset_size, 50)
+        #dataset_size = min(dataset_size, 50)
 
         all_text = []
         all_ctgr = []

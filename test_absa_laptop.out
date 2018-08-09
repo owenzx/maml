@@ -1,0 +1,5 @@
+0
+801
+200
+Restoring model weights from logs/absa_laptop//cls_5.mbs_32.ubs_4.numstep1.updatelr0.4stopgradnonorm/model420
+Test results: 0.6, 0.5775

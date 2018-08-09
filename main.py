@@ -82,6 +82,8 @@ flags.DEFINE_string('pretrain_embedding_path', '', 'the path of the pretrained e
 
 flags.DEFINE_integer('gpu_id', -1, 'the id of the gpu to use')
 
+flags.DEFINE_string('absa_domain', 'restaurant', 'specific domain of the absa dataset')
+
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100
     SAVE_INTERVAL = 1000

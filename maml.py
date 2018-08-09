@@ -307,8 +307,7 @@ class MAML:
                     self.cells[k][n].update_weights(weights[k+"_%d_"%n+"w"], weights[k+"_%d_"%n+"b"])
 
         text_tok, ctgr_tok = inp
-        text_tok = tf.Print(text_tok, [text_tok])
-        #print(text_tok.shape)
+        #text_tok = tf.Print(text_tok, [text_tok])
         #text_tok = tf.expand_dims(text_tok, axis=-1)
         #ctgr_tok = tf.expand_dims(ctgr_tok, axis=-1)
         text_vec = tf.nn.embedding_lookup(weights['emb'], text_tok)
