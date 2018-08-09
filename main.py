@@ -175,6 +175,7 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     saver.save(sess, FLAGS.logdir + '/' + exp_string +  '/model' + str(itr))
 
 
+
 def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0, train_set_init_ops=None, test_set_init_ops=None):
     SUMMARY_INTERVAL = 1
     SAVE_INTERVAL = 1

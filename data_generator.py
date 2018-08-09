@@ -6,7 +6,7 @@ import tensorflow as tf
 
 from tensorflow.python.platform import flags
 from utils import get_images, get_pad_batch, get_pad_metabatch, get_batch_labels, get_metabatch_labels
-from absa_reader import read_absa_restaurants, read_absa_laptops
+from nlp_data_reader import read_absa_restaurants, read_absa_laptops, read_target_dependent
 FLAGS = flags.FLAGS
 
 class DataGenerator(object):

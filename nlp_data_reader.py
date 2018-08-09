@@ -1,3 +1,4 @@
+# code mainly borrowed from https://github.com/coastalcph/mtl-disparate/blob/master/preproc/data_reader.py
 import os
 import xml.etree.ElementTree as ET
 from sklearn.model_selection import train_test_split
@@ -85,10 +86,48 @@ def parse_absa(file_path, debug=False, num_instances=20):
     #assert data["labels"] == ABSA_LABELS
     return data
 
+def read_target_dependent(datafolder="./data/", debug=True, num_instances=999999999):
+    target_dependent_path = os.path.join(datafolder, 'target-dependent')
+    train_path = os.path.join(target_dependent_path, 'train.raw')
+    test_path = os.path.join(target_dependent_path, 'test.raw')
+    for path_ in [target_dependent_path, train_path, test_path]:
+        assert os.path.exists(path_), 'Error: %s does not exist.' % path_
+
+    data_train = parse_target_dependent(train_path, debug, num_instances)
+    data_test = parse_target_dependent(test_path)
+    data_train, data_dev = split_train_data(data_train)
+    return data_train, data_dev, data_test
+
+def parse_target_dependent(file_path, debug=False, num_instances=20):
+    TARGET_LABELS = ['-1', '0', '1']
+    data = {"seq1": [], "seq2": [], "stance": []}
+    with open(file_path, encoding='utf-8') as f:
+        for i, line in enumerate(f):
+            if i % 3 == 0:  # the tweet is always first
+                data["seq2"].append(line.strip())
+            elif i % 3 == 1:  # followed by the target
+                data["seq1"].append(line.strip())
+            elif i % 3 == 2:  # followed by the sentiment
+                data["stance"].append(line.strip())
+            if debug and i >= num_instances+1:
+                continue
+        assert len(data["seq1"]) == len(data["seq2"]) == len(data["stance"]),\
+            'Error: %d != %d != %d.' % (len(data["seq1"]), len(data["seq2"]),
+                                        len(data["stance"]))
+
+    # replace the placeholder $T$ in every tweet with the target
+    for i in range(len(data["seq1"])):
+        target = data["seq1"][i]
+        data["seq2"][i] = data["seq2"][i].replace("$T$", target)
+    data["labels"] = sorted(list(set(data["stance"])))
+    assert data["labels"] == TARGET_LABELS
+    return data
+
 
 def main():
-    train_set, dev_set, test_set = read_absa_restaurants(datafolder='./data/semeval_task5')
+    train_set, dev_set, test_set = read_target_dependent(datafolder='./data/')
     print(train_set.keys())
+    print(train_set['seq1'])
 
 if __name__ == "__main__":
     main()
