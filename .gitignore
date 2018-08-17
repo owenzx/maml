@@ -98,3 +98,5 @@ logs/
 tmp*
 
 .*
+
+*.out
