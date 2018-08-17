@@ -63,6 +63,7 @@ flags.DEFINE_integer('num_filters', 64, 'number of filters for conv nets -- 32 f
 flags.DEFINE_bool('conv', True, 'whether or not to use a convolutional network, only applicable in some cases')
 flags.DEFINE_bool('max_pool', False, 'Whether or not to use max pooling rather than strided convolutions')
 flags.DEFINE_bool('stop_grad', False, 'if True, do not use second derivatives in meta-optimization (for speed)')
+flags.DEFINE_integer('num_rnn_layers', 3, 'number of rnn layers')
 
 ## Logging, saving, and testing options
 flags.DEFINE_bool('log', True, 'if false, do not log summaries, for debugging code.')
@@ -197,6 +198,28 @@ def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0
     test_init_op_inputa, test_init_op_inputb, test_init_op_labela, test_init_op_labelb = test_set_init_ops
 
     itr = 0
+    #First test random performance
+#    sess.run(test_init_op_inputa)
+#    sess.run(test_init_op_labela)
+#    sess.run(test_init_op_inputb)
+#    sess.run(test_init_op_labelb)
+#    while True:
+#        try:
+#            feed_dict = {}
+#            if model.classification:
+#                input_tensors = [model.metaval_total_accuracy1, model.metaval_total_accuracies2[FLAGS.num_updates-1]]
+#            else:
+#                input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1]]
+#            result = sess.run(input_tensors, feed_dict)
+#            test_prelosses.append(result[-2])
+#            test_postlosses.append(result[-1])
+#        except tf.errors.OutOfRangeError:
+#            break
+#        
+#    print('Test_prelosses: ' + str(test_prelosses) + ', Test_postlosses: ' + str(test_postlosses))
+#    print('Validation results: ' + str(np.mean(test_prelosses)) + ', ' + str(np.mean(test_postlosses)))
+#    test_prelosses, test_postlosses = [], []
+
     for epoch in range(resume_epoch, FLAGS.pretrain_epochs + FLAGS.metatrain_epochs):
         feed_dict = {}
         sess.run(init_op_inputa)
@@ -216,9 +239,10 @@ def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0
                     input_tensors = [model.pretrain_op]
                 else:
                     input_tensors = [model.metatrain_op]
+                #input_tensors.extend([model.debug_grads])
 
                 itr += 1
-                print(itr)
+                #print(itr)
                 if (itr % SUMMARY_INTERVAL == 0):
                     #input_tensors.extend([model.summ_op, model.total_loss1, model.total_losses2[FLAGS.num_updates-1]])
                     input_tensors.extend([model.total_loss1, model.total_losses2[FLAGS.num_updates-1]])
@@ -232,6 +256,7 @@ def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0
                 #with open('timeline_01.json', 'w') as f:
                 #    f.write(chrome_trace)
                 result = sess.run(input_tensors)
+                #print(result[1])
                 if itr % SUMMARY_INTERVAL == 0:
                     prelosses.append(result[-2])
                     #if FLAGS.log:
@@ -241,6 +266,9 @@ def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0
                 break
 
 
+#        np.set_printoptions(threshold=None)
+#        with open('debug_tensor_epoch_%d.txt'%epoch,'w') as fw:
+#            fw.write(str(sess.run(model.weights['text_cell_forw_1_w'])))
 
         if epoch % PRINT_INTERVAL == 0:
             if epoch < FLAGS.pretrain_epochs:
@@ -269,7 +297,7 @@ def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0
                     result = sess.run(input_tensors, feed_dict)
                     test_prelosses.append(result[-2])
                     test_postlosses.append(result[-1])
-                    print("running")
+                    #print("running")
                 except tf.errors.OutOfRangeError:
                     break
                 
@@ -468,11 +496,6 @@ def main():
         if FLAGS.train:
             random.seed(5)
             (inputa, inputb, labela, labelb), train_set_init_ops = data_generator.make_data_tensor(word2idx)
-            #sess = tf.InteractiveSession()
-            #sess.run(train_set_init_ops[0])
-            #print("DEBUG START:")
-            #print(inputa)
-            #x1, x2 = sess.run(inputa)
 
             
             input_tensors = {'inputa':inputa, 'inputb': inputb, 'labela':labela, 'labelb':labelb}

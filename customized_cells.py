@@ -232,10 +232,12 @@ class Customized_BasicLSTMCell(tf.contrib.rnn.LayerRNNCell):
 
 
   def update_weights(self, new_kernel, new_bias):
-      assert(self._kernel.shape == new_kernel.shape)
-      assert(self._bias.shape == new_bias.shape)
+      if self.built:
+          assert(self._kernel.shape == new_kernel.shape)
+          assert(self._bias.shape == new_bias.shape)
       self._kernel = new_kernel
       self._bias = new_bias
+      self.built = True
 
   def call(self, inputs, state):
     """Long short-term memory cell (LSTM).

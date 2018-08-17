@@ -54,7 +54,7 @@ class MAML:
             self.classification = True
             self.loss_func = xent_onehot
             self.dim_emb = 100
-            self.num_layers = 3
+            self.num_layers = FLAGS.num_rnn_layers
             self.batch_size = FLAGS.update_batch_size
             #Other hyper-parameters
         else:
@@ -96,6 +96,8 @@ class MAML:
             def task_metalearn(inp, reuse=True):
                 """ Perform gradient descent for one task in the meta-batch. """
                 inputa, inputb, labela, labelb = inp
+                #inputa = tf.Print(inputa, [inputa], summarize=10000)
+                #labela = tf.Print(labela, [labela])
                 task_outputbs, task_lossesb = [], []
 
                 if self.classification:
@@ -169,7 +171,9 @@ class MAML:
             if self.classification:
                 self.total_accuracy1 = total_accuracy1 = tf.reduce_sum(accuraciesa) / tf.to_float(FLAGS.meta_batch_size)
                 self.total_accuracies2 = total_accuracies2 = [tf.reduce_sum(accuraciesb[j]) / tf.to_float(FLAGS.meta_batch_size) for j in range(num_updates)]
-            self.pretrain_op = tf.train.AdamOptimizer(self.meta_lr).minimize(total_loss1)
+            self.debug_grads = tf.gradients(total_loss1, [self.weights['w2'], self.weights['text_cell_forw_0_w']])
+            #self.pretrain_op = tf.train.AdamOptimizer(self.meta_lr).minimize(total_loss1)
+            self.pretrain_op = tf.train.GradientDescentOptimizer(0.01*self.meta_lr).minimize(total_loss1)
 
             if FLAGS.metatrain_iterations > 0:
                 optimizer = tf.train.AdamOptimizer(self.meta_lr)
@@ -267,7 +271,7 @@ class MAML:
             emb_initializer = tf.constant_initializer(self.pretrain_embedding)
             weights['emb'] = tf.get_variable('emb', [self.vocab_size, self.dim_emb], initializer = emb_initializer, trainable=True)
             
-        weights['w1'] = tf.get_variable('w1', [8*self.dim_hidden, self.dim_hidden], initializer = fc_initializer)
+        weights['w1'] = tf.get_variable('w1', [4*self.dim_hidden, self.dim_hidden], initializer = fc_initializer)
         weights['b1'] = tf.Variable(tf.zeros([self.dim_hidden]), name = 'b1')
         weights['w2'] = tf.get_variable('w2', [self.dim_hidden, self.dim_output], initializer = fc_initializer)
         weights['b2'] = tf.Variable(tf.zeros([self.dim_output]), name='b2')
@@ -279,11 +283,12 @@ class MAML:
         self.cells['ctgr_cell_forw'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
         self.cells['ctgr_cell_back'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
 
+        num_rnn_hiddens = [self.dim_emb] + [self.dim_hidden for _ in range(self.num_layers-1)]
         #All the rnn cells must be built so that their weights can be accessed
-        build_cells(self.cells['text_cell_forw'],[self.dim_emb, 2*self.dim_hidden, 2*self.dim_hidden])
-        build_cells(self.cells['text_cell_back'],[self.dim_emb, 2*self.dim_hidden, 2*self.dim_hidden])
-        build_cells(self.cells['ctgr_cell_forw'],[self.dim_emb, 2*self.dim_hidden, 2*self.dim_hidden])
-        build_cells(self.cells['ctgr_cell_back'],[self.dim_emb, 2*self.dim_hidden, 2*self.dim_hidden])
+        build_cells(self.cells['text_cell_forw'], num_rnn_hiddens)
+        build_cells(self.cells['text_cell_back'], num_rnn_hiddens)
+        build_cells(self.cells['ctgr_cell_forw'], num_rnn_hiddens)
+        build_cells(self.cells['ctgr_cell_back'], num_rnn_hiddens)
 
 
         #Note that currently, the following code only works for LSTM cells 
@@ -301,13 +306,19 @@ class MAML:
 
 
     def forward_rnn(self, inp, weights, reuse=False, scope=''):
+        cells=dict()
+        cells['text_cell_forw'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
+        cells['text_cell_back'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
+        cells['ctgr_cell_forw'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
+        cells['ctgr_cell_back'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
+
         #first update the weights of all the rnn cells
         for k in self.cells.keys():
             for n in range(self.num_layers):
-                    self.cells[k][n].update_weights(weights[k+"_%d_"%n+"w"], weights[k+"_%d_"%n+"b"])
+                    cells[k][n].update_weights(weights[k+"_%d_"%n+"w"], weights[k+"_%d_"%n+"b"])
 
-        text_tok, ctgr_tok = inp
-        #text_tok = tf.Print(text_tok, [text_tok])
+        text_tok, ctgr_tok, text_len, ctgr_len = inp
+        #text_tok = tf.Print(text_tok, [text_tok], summarize=10000)
         #text_tok = tf.expand_dims(text_tok, axis=-1)
         #ctgr_tok = tf.expand_dims(ctgr_tok, axis=-1)
         text_vec = tf.nn.embedding_lookup(weights['emb'], text_tok)
@@ -316,39 +327,43 @@ class MAML:
 
         output = text_vec
         for n in range(self.num_layers):
-            cell_fw = self.cells['text_cell_forw'][n]
-            cell_bw = self.cells['text_cell_back'][n]
+            cell_fw = cells['text_cell_forw'][n]
+            cell_bw = cells['text_cell_back'][n]
 
             state_fw = cell_fw.zero_state(self.batch_size, tf.float32)
             state_bw = cell_bw.zero_state(self.batch_size, tf.float32)
             #print("OUTPUT.SHAPE:")
             #print(output.shape)
-            (output_fw, output_bw), last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, output,initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_text_'+str(n), dtype = tf.float32)
+            (output_fw, output_bw), last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, output, sequence_length=text_len, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_text_'+str(n), dtype = tf.float32)
 
-            output = tf.concat([output_fw, output_bw], axis = 2)
-        #text_hidden = output
-        text_hidden = tf.concat([output[:,0,:],output[:,-1,:]],axis=-1)
+            #output = tf.concat([output_fw, output_bw], axis = 2)
+            output = output_fw + output_bw
+        last_fw, last_bw = last_state
+        text_hidden = tf.concat([last_fw.h, last_bw.h], axis = -1)
+        #text_hidden = tf.concat([output[:,0,:],output[:,-1,:]],axis=-1)
 
         output = ctgr_vec
         for n in range(self.num_layers):
-            cell_fw = self.cells['ctgr_cell_forw'][n]
-            cell_bw = self.cells['ctgr_cell_back'][n]
+            cell_fw = cells['ctgr_cell_forw'][n]
+            cell_bw = cells['ctgr_cell_back'][n]
 
             state_fw = cell_fw.zero_state(self.batch_size, tf.float32)
             state_bw = cell_bw.zero_state(self.batch_size, tf.float32)
 
-            (output_fw, output_bw), last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, output,initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_ctgr_'+str(n), dtype = tf.float32)
+            (output_fw, output_bw), last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, output, sequence_length=ctgr_len, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_ctgr_'+str(n), dtype = tf.float32)
 
-            output = tf.concat([output_fw, output_bw], axis = 2)
-        #ctgr_hidden = output
-        ctgr_hidden = tf.concat([output[:,0,:],output[:,-1,:]],axis=-1)
+            #output = tf.concat([output_fw, output_bw], axis = 2)
+            output = output_fw + output_bw
+        last_fw, last_bw = last_state
+        ctgr_hidden = tf.concat([last_fw.h, last_bw.h], axis=-1)
+        #ctgr_hidden = tf.concat([output[:,0,:],output[:,-1,:]],axis=-1)
 
         #print("TEXT_HIDDEN.SHAPE:"+str(text_hidden.shape))
         #print("CTGR_HIDDEN.SHAPE:"+str(ctgr_hidden.shape))
         cat_hidden = tf.nn.relu(tf.concat([text_hidden, ctgr_hidden], axis = -1))
         cat_hidden_2 = tf.nn.relu(tf.matmul(cat_hidden, weights['w1']) + weights['b1'])
         final_output = tf.matmul(cat_hidden_2, weights['w2']) + weights['b2']
-        #final_output = tf.Print(final_output, [final_output.shape[0], final_output.shape[1]])
+        #final_output = tf.Print(final_output, [final_output])
         return final_output
         
 

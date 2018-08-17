@@ -63,6 +63,7 @@ def xent(pred, label):
 
 def xent_onehot(pred, label):
     label = tf.one_hot(label, 3)
+    #label = tf.Print(label, [label])
     return tf.nn.softmax_cross_entropy_with_logits(logits=pred, labels=label) / FLAGS.update_batch_size
 
 def read_pretrained_embeddings():
