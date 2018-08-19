@@ -87,7 +87,8 @@ def parse_absa(file_path, debug=False, num_instances=20):
     return data
 
 def read_target_dependent(datafolder="./data/", debug=True, num_instances=999999999):
-    target_dependent_path = os.path.join(datafolder, 'target-dependent')
+    #target_dependent_path = os.path.join(datafolder, 'target-dependent')
+    target_dependent_path = datafolder
     train_path = os.path.join(target_dependent_path, 'train.raw')
     test_path = os.path.join(target_dependent_path, 'test.raw')
     for path_ in [target_dependent_path, train_path, test_path]:
@@ -123,11 +124,135 @@ def parse_target_dependent(file_path, debug=False, num_instances=20):
     assert data["labels"] == TARGET_LABELS
     return data
 
+def parse_topic_based(file_path, debug=False, num_instances=20):
+    data = {"seq1": [], "seq2": [], "stance": []}
+    with open(file_path) as f:
+        for i, line in enumerate(f):
+            id_, target, sentiment, tweet = line.split('\t')
+            try:
+                sentiment = float(sentiment)
+            except ValueError:
+                pass
+            if debug and i >= num_instances+1:
+                continue
+            if tweet.strip() == 'Not Available':
+                continue
+            data["seq1"].append(target)
+            data["seq2"].append(tweet)
+            data["stance"].append(sentiment)
+
+    # we have to sort the labels so that they're in the order
+    # -2,-1,0,1,2 and are mapped to 0,1,2,3,4 (for subtask C)
+    data["labels"] = sorted(list(set(data["stance"])))
+    return data
+
+def parse_topic_test_data(examples_path, labels_path):
+    # Note: no debugging for the test data (20k tweets for subtask C)
+    data = {"seq1": [], "seq2": [], "stance": []}
+    with open(examples_path) as f_examples, open(labels_path) as f_labels:
+        for i, (line_examples, line_labels) in enumerate(zip(f_examples, f_labels)):
+            _, examples_target, _, *tweet = line_examples.strip().split('\t')
+            # two lines contain a tweet, for some reason
+            _, labels_target, sentiment, *_ = line_labels.strip().split('\t')
+            # one test tweet contains a tab character
+            if isinstance(tweet, list):
+                tweet = '\t'.join(tweet)
+            try:
+                sentiment = float(sentiment)
+            except ValueError:
+                pass
+
+            assert examples_target == labels_target,\
+                '%s != %s at line %d in files %s and %s.' % (
+                examples_target, labels_target, i, examples_path, labels_path)
+
+            if tweet.strip() == 'Not Available':
+                continue
+            data["seq1"].append(examples_target)
+            data["seq2"].append(tweet)
+            data["stance"].append(sentiment)
+    data["labels"] = sorted(list(set(data["stance"])))
+    return data
+
+def readTopicBased(datafolder="./data/", debug=True, num_instances=20):
+    TOPIC_LABELS = ['negative', 'positive']
+    topic_based_path = os.path.join(datafolder, 'semeval2016-task4b-topic-based-sentiment')
+    train_path = os.path.join(topic_based_path, '100_topics_XXX_tweets.topic-two-point.subtask-BD.train.gold_downloaded.tsv')
+    dev1_path = os.path.join(topic_based_path, '100_topics_XXX_tweets.topic-two-point.subtask-BD.dev.gold_downloaded.tsv')
+    dev2_path = os.path.join(topic_based_path, '100_topics_XXX_tweets.topic-two-point.subtask-BD.devtest.gold_downloaded.tsv')
+    test_data_path = os.path.join(topic_based_path, 'SemEval2016-task4-test.subtask-BD.txt')
+    test_labels_path = os.path.join(topic_based_path, 'SemEval2016_task4_subtaskB_test_gold.txt')
+
+    for path_ in [topic_based_path, train_path, dev1_path, dev2_path, test_data_path, test_labels_path]:
+        assert os.path.exists(path_), 'Error: %s does not exist.' % path_
+
+    data_train = parse_topic_based(train_path, debug, num_instances)
+    data_dev1 = parse_topic_based(dev1_path, debug, num_instances)
+    data_dev2 = parse_topic_based(dev2_path, debug, num_instances)
+    data_test = parse_topic_test_data(test_data_path, test_labels_path)
+    assert data_train["labels"] == TOPIC_LABELS
+    data_dev1["labels"] = data_train["labels"]
+    data_test["labels"] = data_train["labels"]
+
+    # add the second dev data to the train set
+    data_train["seq1"] += data_dev2["seq1"]
+    data_train["seq2"] += data_dev2["seq2"]
+    data_train["stance"] += data_dev2["stance"]
+    return data_train, data_dev1, data_test
+
+def readTopic5Way(datafolder="./data/", debug=True, num_instances=200):
+    TOPIC_5WAY_LABELS = [-2.0, -1.0, 0.0, 1.0, 2.0]
+    TOPIC_3WAY_LABELS = [-1.0, 0.0, 1.0]
+
+
+    #topic_based_path = os.path.join(datafolder, 'semeval2016-task4c-topic-based-sentiment')
+    topic_based_path = datafolder
+    train_path = os.path.join(topic_based_path, '100_topics_100_tweets.topic-five-point.subtask-CE.train.gold_downloaded.tsv')
+    dev1_path = os.path.join(topic_based_path, '100_topics_100_tweets.topic-five-point.subtask-CE.dev.gold_downloaded.tsv')
+    dev2_path = os.path.join(topic_based_path, '100_topics_100_tweets.topic-five-point.subtask-CE.devtest.gold_downloaded.tsv')
+    test_data_path = os.path.join(topic_based_path, 'SemEval2016-task4-test.subtask-CE.txt')
+    test_labels_path = os.path.join(topic_based_path, 'SemEval2016_task4_subtaskC_test_gold.txt')
+
+    for path_ in [topic_based_path, train_path, dev1_path, dev2_path,
+                  test_data_path, test_labels_path]:
+        assert os.path.exists(path_), 'Error: %s does not exist.' % path_
+
+    data_train = parse_topic_based(train_path, debug, num_instances)
+    data_dev1 = parse_topic_based(dev1_path, debug, num_instances)
+    data_dev2 = parse_topic_based(dev2_path, debug, num_instances)
+    data_test = parse_topic_test_data(test_data_path, test_labels_path)
+    #print(data_train["labels"])
+    assert data_train["labels"] == TOPIC_5WAY_LABELS
+    data_dev1["labels"] = data_train["labels"]
+    data_test["labels"] = data_train["labels"]
+
+    # add the second dev data to the train set
+    data_train["seq1"] += data_dev2["seq1"]
+    data_train["seq2"] += data_dev2["seq2"]
+    data_train["stance"] += data_dev2["stance"]
+    return data_train, data_dev1, data_test
+
+def map5to3(x):
+    if x>0:
+        return 1.0
+    if x<0:
+        return -1.0
+    return 0.0
+
+def readTopic3Way(datafolder="./data/", debug=True, num_instances=99999999):
+    data_train, data_dev1, data_test = readTopic5Way(datafolder=datafolder, debug=debug, num_instances=num_instances)
+    data_train["labels"] = data_dev1["labels"] = data_test["labels"] =  [-1.0, 0.0, 1.0]
+    data_train["stance"] = [map5to3(x) for x in data_train["stance"]]
+    data_dev1["stance"] = [map5to3(x) for x in data_dev1["stance"]]
+    data_test["stance"] = [map5to3(x) for x in data_test["stance"]]
+    return data_train, data_dev1, data_test
+
+
 
 def main():
-    train_set, dev_set, test_set = read_target_dependent(datafolder='./data/')
+    train_set, dev_set, test_set = readTopic3Way(datafolder='./data/')
     print(train_set.keys())
-    print(train_set['seq1'])
+    print(train_set['stance'])
 
 if __name__ == "__main__":
     main()

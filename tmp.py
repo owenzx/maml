@@ -1,4 +1,5 @@
 import tensorflow as tf
+import numpy as np
 def test1():
     dataset0 = tf.data.Dataset.range(10)
     dataset = dataset0.map(lambda x: tf.fill([2,tf.cast(x, tf.int32)], x))
@@ -34,4 +35,33 @@ def test2():
     sess.run(h)
     print(c.get_weights())
 
-test2()
+def test3():
+    from absa_reader import read_absa_restaurants
+    data_train, data_dev, data_test = read_absa_restaurants(datafolder='./data/semeval_task5')
+    print(data_train.keys() )
+    print(len(data_train['seq1']))
+
+def test4():
+    a = [np.arange(3), np.arange(5)]
+    dataset = tf.data.Dataset.from_generator(lambda: a, tf.int64)
+    #dataset = dataset.repeat()
+    #ds1=dataset.repeat(10)
+    #value = dataset.make_one_shot_iterator().get_next()
+    itr = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
+    value = itr.get_next()
+    sess = tf.InteractiveSession()
+    #sess.run(value) # first element
+    #sess.run(value) # second element
+    #sess.run(value) # Out of range message
+    for _ in range(10):
+        sess.run(itr.make_initializer(dataset))
+
+        while True:
+            try:
+                sess.run(value)
+                print("running")
+            except tf.errors.OutOfRangeError:
+                print("out of range!")
+                break
+
+test4()

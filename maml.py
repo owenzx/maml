@@ -45,7 +45,7 @@ class MAML:
             else:
                 self.channels = 1
             self.img_size = int(np.sqrt(self.dim_input/self.channels))
-        elif FLAGS.datasource == 'absa':
+        elif FLAGS.datasource == 'absa' or FLAGS.datasource == 'transfer_multi':
             self.forward = self.forward_rnn
             self.construct_weights = self.construct_rnn_weights
             self.vocab_size = 40000 + 2 #default choice
@@ -135,12 +135,12 @@ class MAML:
                 task_output = [task_outputa, task_outputbs, task_lossa, task_lossesb]
 
                 if self.classification:
-                    if FLAGS.datasource == 'absa':
+                    if FLAGS.datasource == 'absa' or FLAGS.datasource =='transfer_multi':
                         task_accuracya = tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputa), 1), labela)
                     else:
                         task_accuracya = tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputa), 1), tf.argmax(labela, 1))
                     for j in range(num_updates):
-                        if FLAGS.datasource =='absa':
+                        if FLAGS.datasource =='absa' or FLAGS.datasource == 'transfer_multi':
                             task_accuraciesb.append(tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputbs[j]), 1), labelb))
                         else:
                             task_accuraciesb.append(tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputbs[j]), 1), tf.argmax(labelb, 1)))
@@ -171,7 +171,7 @@ class MAML:
             if self.classification:
                 self.total_accuracy1 = total_accuracy1 = tf.reduce_sum(accuraciesa) / tf.to_float(FLAGS.meta_batch_size)
                 self.total_accuracies2 = total_accuracies2 = [tf.reduce_sum(accuraciesb[j]) / tf.to_float(FLAGS.meta_batch_size) for j in range(num_updates)]
-            self.debug_grads = tf.gradients(total_loss1, [self.weights['w2'], self.weights['text_cell_forw_0_w']])
+            #self.debug_grads = tf.gradients(total_loss1, [self.weights['w2'], self.weights['text_cell_forw_0_w']])
             #self.pretrain_op = tf.train.AdamOptimizer(self.meta_lr).minimize(total_loss1)
             self.pretrain_op = tf.train.GradientDescentOptimizer(0.01*self.meta_lr).minimize(total_loss1)
 

@@ -100,6 +100,13 @@ class DataGenerator(object):
             
             self.dim_output = 3
             self.dim_input = -1 # do not use this value
+        elif FLAGS.datasource == 'transfer_multi':
+            self.make_data_tensor = self.make_data_tensor_transfer_multi
+            self.num_classes = config.get('num_classes', FLAGS.num_classes)
+            self.dim_output = self.num_classes
+
+            self.dim_input = -1
+
 
         else:
             raise ValueError('Unrecognized data source')
@@ -114,7 +121,181 @@ class DataGenerator(object):
                 result.append('UNK')
         return ' '.join(result)
 
+    def make_data_tensor_transfer_multi(self, word2idx, train=True):
+        # Notice the shape of different input datasets must be the same
+        #if train:
+        #    dataset_names = FLAGS.train_datasets
+        #else:
+        #    dataset_names = FLAGS.test_datasets
+        dataset_names = FLAGS.multi_datasets
+        dataset_names_list = dataset_names.split(',')
+        tfdatasets = []
+        for i, name in enumerate(dataset_names_list):
+            if name == 'absa-l':
+                data_train, data_dev, data_test = read_absa_restaurants(datafolder='./data/semeval_task5')
+            elif name == 'absa-r':
+                data_train, data_dev, data_test = read_absa_laptops(datafolder='./data/semeval_task5')
+            elif name == 'target':
+                data_train, data_dev, data_test = read_target_dependent(datafolder='./data/target-dependent')
+            elif name == 'topic-5':
+                # used as topic-3
+                data_train, data_dev, data_test = readTopic3Way(datafolder='./data/semeval2016-task4c-topic-based-sentiment')
+            #The following setting can be changed.
+            if train==True:
+                dataset = data_train
+            elif FLAGS.test_set == False:
+                dataset = data_dev
+            else:
+                dataset = data_test
+            if i!=len(dataset_names_list)-1:
+                tfdataset = self.create_nlp_classification_dataset(dataset, word2idx)
+            else:
+                tfdataset = self.create_nlp_classification_dataset(dataset, word2idx, repeat_dataset=False)
+            tfdatasets.append(tfdataset)
+        self.handle_inputa = tf.placeholder(tf.string, shape=[])
+        self.handle_labela = tf.placeholder(tf.string, shape=[])
+        self.handle_inputb = tf.placeholder(tf.string, shape=[])
+        self.handle_labelb = tf.placeholder(tf.string, shape=[])
+        next_items, iterators = self.get_itr_and_next_from_dataset(tfdatasets[0])
+        self.dataset_itrs = [self.get_oneshot_itr_from_datasets(tfdatasets[i]) if i!=len(tfdatasets)-1 else self.get_initializable_iter_from_datasets(tfdatasets[i]) for i in range(len(tfdatasets))]
+        self.test_init_ops = self.get_init_ops_from_iters(self.dataset_itrs[-1])
+        return next_items
+
     
+    def create_nlp_classification_dataset(self, dataset, word2idx, repeat_dataset=True):
+        #The input dataset should be a dict with 4 keys: seq1, seq2, labesl, stance
+        dataset_size = len(dataset['seq1'])
+
+	    #DELETE THIS AFTER DEBUGGING!!!
+        #dataset_size = min(dataset_size, 50)
+
+        all_text = []
+        all_ctgr = []
+        all_label = []
+        all_text_len = []
+        all_ctgr_len = []
+        #Shuffle once here
+        shuffled_index = np.random.permutation(dataset_size)
+        #print(dataset_size)
+        
+        #Have to do batching first, so have to view everything in a meta-batch a single batch
+        #total_batch_size = self.batch_size * self.num_samples_per_class
+
+        #dataset_size = int(dataset_size / total_batch_size) * total_batch_size
+        
+        dataset['labels'] = [x.lower() for x in dataset['labels']]
+
+        print(dataset_size)
+        for i in range(dataset_size):
+            j = shuffled_index[i]
+            #print("BEFORE: "+str(dataset['seq2'][j]))
+            #print("AFTER: "+str(self.preprocessed_text(dataset['seq2'][j], word2idx)))
+            #text = np.array([word2idx.get(x,word2idx['UNK']) for x in dataset['seq2'][j].split()])
+            #ctgr = np.array([word2idx.get(x,word2idx['UNK']) for x in dataset['seq1'][j].lower().split()])
+            text = np.array([word2idx.get(x,word2idx['UNK']) for x in nltk.word_tokenize(dataset['seq2'][j].lower())])
+            ctgr = np.array([word2idx.get(x,word2idx['UNK']) for x in nltk.word_tokenize(dataset['seq1'][j].lower())])
+            label = np.array(dataset['labels'].index(dataset['stance'][j]))
+            text_len = np.array(len(text))
+            ctgr_len = np.array(len(ctgr))
+
+            #text = np.expand_dims(text, axis=-1)
+            #ctgr = np.expand_dims(ctgr, axis=-1)
+            #label = np.expand_dims(label, axis=-1)
+            all_text.append(text)
+            all_ctgr.append(ctgr)
+            all_label.append(label)
+            all_text_len.append(text_len)
+            all_ctgr_len.append(ctgr_len)
+        padded_all_text = get_pad_batch(all_text, self.num_samples_per_class)
+        padded_all_ctgr = get_pad_batch(all_ctgr, self.num_samples_per_class)
+        all_label = get_batch_labels(all_label, self.num_samples_per_class)
+        all_text_len = get_batch_labels(all_text_len, self.num_samples_per_class)
+        all_ctgr_len = get_batch_labels(all_ctgr_len, self.num_samples_per_class)
+
+        meta_all_text = get_pad_metabatch(padded_all_text, self.batch_size)
+        meta_all_ctgr = get_pad_metabatch(padded_all_ctgr, self.batch_size)
+        meta_all_label = get_metabatch_labels(all_label, self.batch_size)    
+        meta_all_text_len = get_metabatch_labels(all_text_len, self.batch_size)    
+        meta_all_ctgr_len = get_metabatch_labels(all_ctgr_len, self.batch_size)    
+        #np.set_printoptions(threshold=np.nan)
+        #for i in range(33):
+        #    print(meta_all_text[12][i])
+        #    print(meta_all_label[12][i])
+
+
+        print(len(meta_all_text))
+        #text_queue = tf.train.input_producer()
+        #ctgr_queue = tf.train.input_producer()
+        #label_queue = tf.train.input_producer()
+        dataset_text = tf.data.Dataset.from_generator(lambda: meta_all_text, tf.int64, tf.TensorShape([self.batch_size,self.num_samples_per_class,None]))
+        #dataset_text = dataset_text.padded_batch(self.batch_size, padded_shapes=[None])
+        dataset_ctgr = tf.data.Dataset.from_generator(lambda: meta_all_ctgr, tf.int64,tf.TensorShape([self.batch_size,self.num_samples_per_class,None]))
+        #dataset_ctgr = dataset_ctgr.padded_batch(self.batch_size, padded_shapes=[None])
+        dataset_label = tf.data.Dataset.from_generator(lambda: meta_all_label, tf.int64,tf.TensorShape([self.batch_size,self.num_samples_per_class]))
+        #dataset_label = dataset_label.batch(total_batch_size)
+        dataset_text_len = tf.data.Dataset.from_generator(lambda: meta_all_text_len, tf.int64,tf.TensorShape([self.batch_size,self.num_samples_per_class]))
+        dataset_ctgr_len = tf.data.Dataset.from_generator(lambda: meta_all_ctgr_len, tf.int64,tf.TensorShape([self.batch_size,self.num_samples_per_class]))
+
+        dataset_alla = tf.data.Dataset.zip((dataset_text, dataset_ctgr, dataset_label, dataset_text_len, dataset_ctgr_len))
+    
+        dataset_allb = dataset_alla.map(lambda a,b,c,d,e:(a,b,c,d,e))
+
+        dataset_alla = dataset_alla.shuffle(dataset_size)
+        dataset_allb = dataset_allb.shuffle(dataset_size)
+        if repeat_dataset:
+            dataset_alla = dataset_alla.repeat()
+            dataset_allb = dataset_allb.repeat()
+
+        dataset_inputa = dataset_alla.map(lambda a,b,c,d,e :(a,b,d,e))
+        dataset_labela = dataset_alla.map(lambda a,b,c,d,e:c)
+        dataset_inputb = dataset_allb.map(lambda a,b,c,d,e:(a,b,d,e))
+        dataset_labelb = dataset_allb.map(lambda a,b,c,d,e:c)
+
+        return (dataset_inputa, dataset_labela, dataset_inputb, dataset_labelb)
+
+    
+    def get_itr_and_next_from_dataset(self, datasets):
+        dataset_inputa, dataset_labela, dataset_inputb, dataset_labelb = datasets
+
+        iterator_inputa = tf.data.Iterator.from_string_handle(self.handle_inputa, dataset_inputa.output_types, dataset_inputa.output_shapes)
+        iterator_labela = tf.data.Iterator.from_string_handle(self.handle_labela, dataset_labela.output_types, dataset_labela.output_shapes)
+        iterator_inputb = tf.data.Iterator.from_string_handle(self.handle_inputb, dataset_inputb.output_types, dataset_inputb.output_shapes)
+        iterator_labelb = tf.data.Iterator.from_string_handle(self.handle_labelb, dataset_labelb.output_types, dataset_labelb.output_shapes)
+
+        #print(dataset_inputa.output_shapes)
+        #print(dataset_labela.output_shapes)
+        
+        next_inputa = iterator_inputa.get_next()
+        next_inputb = iterator_inputb.get_next()
+        next_labela = iterator_labela.get_next()
+        next_labelb = iterator_labelb.get_next()
+
+        return (next_inputa, next_inputb, next_labela, next_labelb), (iterator_inputa, iterator_inputb, iterator_labela, iterator_labelb)
+
+
+    def get_initializable_iter_from_datasets(self, datasets):
+        return (d.make_initializable_iterator() for d in datasets)
+
+    def get_oneshot_itr_from_datasets(self, datasets):
+        return (d.make_one_shot_iterator() for d in datasets)
+    
+    def get_init_ops_from_iters(self, iters):
+        return (itr.initializer for itr in iters)
+
+    
+    def get_init_ops_from_dataset(self, itrs, datasets):
+        dataset_inputa, dataset_labela, dataset_inputb, dataset_labelb = datasets
+        iterator_inputa, iterator_labela, iterator_inputb, iterator_labelb = itrs
+
+        init_op_inputa = iterator_inputa.make_initializer(dataset_inputa)
+        init_op_labela = iterator_labela.make_initializer(dataset_labela)
+        init_op_inputb = iterator_inputb.make_initializer(dataset_inputb)
+        init_op_labelb = iterator_labelb.make_initializer(dataset_labelb)
+        #self.init_ops = (init_op_inputa, init_op_inputb, init_op_labela, init_op_labelb)
+        return (init_op_inputa, init_op_inputb, init_op_labela, init_op_labelb)
+
+
+
     def make_data_tensor_absa(self, word2idx, train=True):
         if train:
             dataset = self.train_dataset
@@ -146,7 +327,7 @@ class DataGenerator(object):
         for i in range(dataset_size):
             j = shuffled_index[i]
             #print("BEFORE: "+str(dataset['seq2'][j]))
-            #print("AFTER: "+str(self.preprocessed_text(dataset['seq2'][j], word2idx)))
+            #print("AFTER: "+str(self.preprocessRed_text(dataset['seq2'][j], word2idx)))
             #text = np.array([word2idx.get(x,word2idx['UNK']) for x in dataset['seq2'][j].split()])
             #ctgr = np.array([word2idx.get(x,word2idx['UNK']) for x in dataset['seq1'][j].lower().split()])
             text = np.array([word2idx.get(x,word2idx['UNK']) for x in nltk.word_tokenize(dataset['seq2'][j].lower())])

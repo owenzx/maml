@@ -41,6 +41,9 @@ FLAGS = flags.FLAGS
 
 ## Dataset/method options
 flags.DEFINE_string('datasource', 'sinusoid', 'sinusoid or omniglot or miniimagenet')
+flags.DEFINE_string('train_datasets', '', 'the datasets for training, use comma to saparate')
+flags.DEFINE_string('test_datasets', '', 'the datasets for testing')
+flags.DEFINE_string('multi_datasets', '', 'the last dataset is used for testing, others for training')
 flags.DEFINE_integer('num_classes', 5, 'number of classes used in classification (e.g. 5-way classification).')
 # oracle means task id is input (only suitable for sinusoid)
 flags.DEFINE_string('baseline', None, 'oracle, or None')
@@ -176,6 +179,94 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     saver.save(sess, FLAGS.logdir + '/' + exp_string +  '/model' + str(itr))
 
 
+def train_transfer(model, saver, sess, exp_string, data_generator, resume_epoch=0):
+    SUMMARY_INTERVAL = 1
+    SAVE_INTERVAL = 1
+
+    PRINT_INTERVAL = 1
+    TEST_PRINT_INTERVAL = PRINT_INTERVAL
+
+    if FLAGS.log:
+        train_writer = tf.summary.FileWriter(FLAGS.logdir + '/' + exp_string, sess.graph)
+    print('Done initializing, starting training.')
+    prelosses, postlosses = [], []
+    test_prelosses, test_postlosses = [], []
+
+    num_classes = data_generator.num_classes # for classification, 1 otherwise
+    multitask_weights, reg_weights = [], []
+
+    test_init_op_inputa, test_init_op_inputb, test_init_op_labela, test_init_op_labelb = data_generator.test_init_ops
+
+    dataset_handles = [[sess.run(itr.string_handle()) for itr in itrs] for itrs in data_generator.dataset_itrs]
+    train_handles = dataset_handles[:-1]
+    test_handles = dataset_handles[-1:]
+
+    itr = 0
+    for epoch in range(resume_epoch, FLAGS.pretrain_epochs + FLAGS.metatrain_epochs):
+        feed_dict = {}
+        #sess.run(init_op_inputa)
+        #sess.run(init_op_labela)
+        #sess.run(init_op_inputb)
+        #sess.run(init_op_labelb)
+
+        for i in range(100):
+            handles = train_handles[i%len(train_handles)]
+            print(handles)
+            print(type(handles))
+            feed_dict = {data_generator.handle_inputa:handles[0], data_generator.handle_labela:handles[1], data_generator.handle_inputb:handles[2], data_generator.handle_labelb:handles[3]}
+            if epoch < FLAGS.pretrain_epochs:
+                input_tensors = [model.pretrain_op]
+            else:
+                input_tensors = [model.metatrain_op]
+            if (itr % SUMMARY_INTERVAL == 0):
+                #input_tensors.extend([model.summ_op, model.total_loss1, model.total_losses2[FLAGS.num_updates-1]])
+                input_tensors.extend([model.total_loss1, model.total_losses2[FLAGS.num_updates-1]])
+                if model.classification:
+                    input_tensors.extend([model.total_accuracy1, model.total_accuracies2[FLAGS.num_updates-1]])                
+            result = sess.run(input_tensors, feed_dict=feed_dict)
+            if itr % SUMMARY_INTERVAL == 0:
+                    prelosses.append(result[-2])
+                    #if FLAGS.log:
+                    #    train_writer.add_summary(result[1], itr)
+                    postlosses.append(result[-1])
+
+        if epoch % PRINT_INTERVAL == 0:
+            if epoch < FLAGS.pretrain_epochs:
+                print_str = 'Pretrain Epoch ' + str(epoch)
+            else:
+                print_str = 'Epoch ' + str(epoch - FLAGS.pretrain_epochs)
+            print_str += ': ' + str(np.mean(prelosses)) + ', ' + str(np.mean(postlosses))
+            print(print_str)
+            prelosses, postlosses = [], []
+
+        if epoch % SAVE_INTERVAL == 0:
+            saver.save(sess, FLAGS.logdir + '/' + exp_string + '/model' + str(epoch))
+
+        if epoch % TEST_PRINT_INTERVAL == 0 and FLAGS.datasource !='sinusoid':
+            sess.run(test_init_op_inputa)
+            sess.run(test_init_op_labela)
+            sess.run(test_init_op_inputb)
+            sess.run(test_init_op_labelb)
+            handles = test_handles[0]
+            feed_dict = {data_generator.handle_inputa:handles[0], data_generator.handle_labela:handles[1], data_generator.handle_inputb:handles[2], data_generator.handle_labelb:handles[3]}
+            while True:
+                try:
+                    feed_dict = {}
+                    if model.classification:
+                        input_tensors = [model.metaval_total_accuracy1, model.metaval_total_accuracies2[FLAGS.num_updates-1]]
+                    else:
+                        input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1]]
+                    result = sess.run(input_tensors, feed_dict)
+                    test_prelosses.append(result[-2])
+                    test_postlosses.append(result[-1])
+                except tf.errors.OutOfRangeError:
+                    break
+                
+            print('Test_prelosses: ' + str(test_prelosses) + ', Test_postlosses: ' + str(test_postlosses))
+            print('Validation results: ' + str(np.mean(test_prelosses)) + ', ' + str(np.mean(test_postlosses)))
+            test_prelosses, test_postlosses = [], []
+
+    saver.save(sess, FLAGS.logdir + '/' + exp_string +  '/model' + str(itr))
 
 def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0, train_set_init_ops=None, test_set_init_ops=None):
     SUMMARY_INTERVAL = 1
@@ -363,6 +454,51 @@ def test(model, saver, sess, exp_string, data_generator, test_num_updates=None):
         writer.writerow(ci95)
 
 
+def test_transfer(model, saver, sess, exp_string, data_generator, resume_epoch=0):
+    """currently only support testing on one dataset"""
+    SUMMARY_INTERVAL = 1
+    SAVE_INTERVAL = 1
+
+    PRINT_INTERVAL = 1
+    TEST_PRINT_INTERVAL = PRINT_INTERVAL
+
+    if FLAGS.log:
+        train_writer = tf.summary.FileWriter(FLAGS.logdir + '/' + exp_string, sess.graph)
+    print('Done initializing, starting training.')
+    prelosses, postlosses = [], []
+    test_prelosses, test_postlosses = [], []
+
+    num_classes = data_generator.num_classes # for classification, 1 otherwise
+    multitask_weights, reg_weights = [], []
+
+    test_init_op_inputa, test_init_op_inputb, test_init_op_labela, test_init_op_labelb = data_generator.test_init_ops
+
+    dataset_handles = [(sess.run(itr.string_handle()) for itr in itrs) for itrs in data_generator.dataset_itrs]
+    train_handles = dataset_handles[:-1]
+    test_handles = dataset_handles[-1:]
+
+    sess.run(test_init_op_inputa)
+    sess.run(test_init_op_labela)
+    sess.run(test_init_op_inputb)
+    sess.run(test_init_op_labelb)
+    handles = test_handles[0]
+    feed_dict = {model.meta_lr : 0.0, data_generator.handle_inputa:handles[0], data_generator.handle_labela:handles[1], data_generator.handle_inputb:handles[2], data_generator.handle_labelb:handles[3]}
+    while True:
+        try:
+            feed_dict = {}
+            if model.classification:
+                input_tensors = [model.metaval_total_accuracy1, model.metaval_total_accuracies2[FLAGS.num_updates-1]]
+            else:
+                input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1]]
+            result = sess.run(input_tensors, feed_dict)
+            test_prelosses.append(result[-2])
+            test_postlosses.append(result[-1])
+        except tf.errors.OutOfRangeError:
+            break
+        
+    print('Test results: ' + str(np.mean(test_prelosses)) + ', ' + str(np.mean(test_postlosses)))
+
+
 def test_dataset(model, saver, sess, exp_string, data_generator, test_num_updates=None, test_set_init_ops=None):
     num_classes = data_generator.num_classes # for classification, 1 otherwise
 
@@ -400,7 +536,7 @@ def test_dataset(model, saver, sess, exp_string, data_generator, test_num_update
 def main():
     print(FLAGS.gpu_id)
     if FLAGS.gpu_id == -1:
-        os.envirion["CUDA_VISIBLE_DEVICES"] = ""
+        os.environ["CUDA_VISIBLE_DEVICES"] = ""
     else:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu_id)
     
@@ -444,7 +580,7 @@ def main():
                     data_generator = DataGenerator(FLAGS.update_batch_size+15, FLAGS.meta_batch_size)  # only use one datapoint for testing to save memory
                 else:
                     data_generator = DataGenerator(FLAGS.update_batch_size*2, FLAGS.meta_batch_size)  # only use one datapoint for testing to save memory
-            elif FLAGS.datasource == 'absa':
+            elif FLAGS.datasource == 'absa' or FLAGS.datasource == 'transfer_multi':
                 data_generator = DataGenerator(FLAGS.update_batch_size, FLAGS.meta_batch_size)
             else:
                 data_generator = DataGenerator(FLAGS.update_batch_size*2, FLAGS.meta_batch_size)  # only use one datapoint for testing to save memory
@@ -504,6 +640,20 @@ def main():
         (t_inputa, t_inputb, t_labela, t_labelb), test_set_init_ops = data_generator.make_data_tensor(word2idx, train=False)
         metaval_input_tensors = {'inputa':t_inputa, 'inputb': t_inputb, 'labela':t_labela, 'labelb':t_labelb}
         #metaval_input_tensors = {'inputa': {'text':tf.placeholder(tf.float32), 'ctgr':tf.placeholder(tf.float32)}, 'inputb': {'text':tf.placeholder(tf.float32), 'ctgr':tf.placeholder(tf.float32)}, 'labela': tf.placeholder(tf.float32), 'labelb': tf.placeholder(tf.float32)}
+    elif FLAGS.datasource == 'transfer_multi':
+        tf_data_load = True
+        if FLAGS.train:
+            random.seed(5)
+            inputa, inputb, labela, labelb = data_generator.make_data_tensor(word2idx)
+
+            
+            input_tensors = {'inputa':inputa, 'inputb': inputb, 'labela':labela, 'labelb':labelb}
+
+        #random.seed(6)
+        #t_inputa, t_inputb, t_labela, t_labelb = data_generator.make_data_tensor(word2idx, train=False)
+        #metaval_input_tensors = {'inputa':t_inputa, 'inputb': t_inputb, 'labela':t_labela, 'labelb':t_labelb}
+        metaval_input_tensors = {'inputa':inputa, 'inputb': inputb, 'labela':labela, 'labelb':labelb}
+
     else:
         tf_data_load = False
         input_tensors = None
@@ -572,11 +722,15 @@ def main():
     if FLAGS.train:
         if FLAGS.datasource == 'absa':
             train_dataset(model, saver, sess, exp_string, data_generator, resume_itr, train_set_init_ops, test_set_init_ops)
+        elif FLAGS.datasource =='transfer_multi':
+            train_transfer(model, saver, sess, exp_string, data_generator, resume_itr) 
         else:
             train(model, saver, sess, exp_string, data_generator, resume_itr)
     else:
         if FLAGS.datasource == 'absa':
             test_dataset(model, saver, sess, exp_string, data_generator, test_num_updates, test_set_init_ops)
+        elif FLAGS.datasource == 'transfer_multi':
+            test_transfer(model, saver, sess, exp_string, data_generator, resume_itr)
         else:
             test(model, saver, sess, exp_string, data_generator, test_num_updates)
 
