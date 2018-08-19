@@ -211,8 +211,8 @@ def train_transfer(model, saver, sess, exp_string, data_generator, resume_epoch=
 
         for i in range(100):
             handles = train_handles[i%len(train_handles)]
-            print(handles)
-            print(type(handles))
+            #print(handles)
+            #print(type(handles))
             feed_dict = {data_generator.handle_inputa:handles[0], data_generator.handle_labela:handles[1], data_generator.handle_inputb:handles[2], data_generator.handle_labelb:handles[3]}
             if epoch < FLAGS.pretrain_epochs:
                 input_tensors = [model.pretrain_op]
