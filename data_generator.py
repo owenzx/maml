@@ -274,10 +274,10 @@ class DataGenerator(object):
 
 
     def get_initializable_iter_from_datasets(self, datasets):
-        return (d.make_initializable_iterator() for d in datasets)
+        return [d.make_initializable_iterator() for d in datasets]
 
     def get_oneshot_itr_from_datasets(self, datasets):
-        return (d.make_one_shot_iterator() for d in datasets)
+        return [d.make_one_shot_iterator() for d in datasets]
     
     def get_init_ops_from_iters(self, iters):
         return (itr.initializer for itr in iters)

@@ -251,7 +251,7 @@ def train_transfer(model, saver, sess, exp_string, data_generator, resume_epoch=
             feed_dict = {data_generator.handle_inputa:handles[0], data_generator.handle_labela:handles[1], data_generator.handle_inputb:handles[2], data_generator.handle_labelb:handles[3]}
             while True:
                 try:
-                    feed_dict = {}
+                    #feed_dict = {}
                     if model.classification:
                         input_tensors = [model.metaval_total_accuracy1, model.metaval_total_accuracies2[FLAGS.num_updates-1]]
                     else:
@@ -289,27 +289,6 @@ def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0
     test_init_op_inputa, test_init_op_inputb, test_init_op_labela, test_init_op_labelb = test_set_init_ops
 
     itr = 0
-    #First test random performance
-#    sess.run(test_init_op_inputa)
-#    sess.run(test_init_op_labela)
-#    sess.run(test_init_op_inputb)
-#    sess.run(test_init_op_labelb)
-#    while True:
-#        try:
-#            feed_dict = {}
-#            if model.classification:
-#                input_tensors = [model.metaval_total_accuracy1, model.metaval_total_accuracies2[FLAGS.num_updates-1]]
-#            else:
-#                input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1]]
-#            result = sess.run(input_tensors, feed_dict)
-#            test_prelosses.append(result[-2])
-#            test_postlosses.append(result[-1])
-#        except tf.errors.OutOfRangeError:
-#            break
-#        
-#    print('Test_prelosses: ' + str(test_prelosses) + ', Test_postlosses: ' + str(test_postlosses))
-#    print('Validation results: ' + str(np.mean(test_prelosses)) + ', ' + str(np.mean(test_postlosses)))
-#    test_prelosses, test_postlosses = [], []
 
     for epoch in range(resume_epoch, FLAGS.pretrain_epochs + FLAGS.metatrain_epochs):
         feed_dict = {}
@@ -485,7 +464,7 @@ def test_transfer(model, saver, sess, exp_string, data_generator, resume_epoch=0
     feed_dict = {model.meta_lr : 0.0, data_generator.handle_inputa:handles[0], data_generator.handle_labela:handles[1], data_generator.handle_inputb:handles[2], data_generator.handle_labelb:handles[3]}
     while True:
         try:
-            feed_dict = {}
+            #feed_dict = {}
             if model.classification:
                 input_tensors = [model.metaval_total_accuracy1, model.metaval_total_accuracies2[FLAGS.num_updates-1]]
             else:
