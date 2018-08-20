@@ -44,6 +44,7 @@ flags.DEFINE_string('datasource', 'sinusoid', 'sinusoid or omniglot or miniimage
 flags.DEFINE_string('train_datasets', '', 'the datasets for training, use comma to saparate')
 flags.DEFINE_string('test_datasets', '', 'the datasets for testing')
 flags.DEFINE_string('multi_datasets', '', 'the last dataset is used for testing, others for training')
+flags.DEFINE_bool('switch_datasets', True, 'whether switch the train and val dataset when using multiple datasets for transfer')
 flags.DEFINE_integer('num_classes', 5, 'number of classes used in classification (e.g. 5-way classification).')
 # oracle means task id is input (only suitable for sinusoid)
 flags.DEFINE_string('baseline', None, 'oracle, or None')
@@ -262,7 +263,7 @@ def train_transfer(model, saver, sess, exp_string, data_generator, resume_epoch=
                 except tf.errors.OutOfRangeError:
                     break
                 
-            print('Test_prelosses: ' + str(test_prelosses) + ', Test_postlosses: ' + str(test_postlosses))
+            #print('Test_prelosses: ' + str(test_prelosses) + ', Test_postlosses: ' + str(test_postlosses))
             print('Validation results: ' + str(np.mean(test_prelosses)) + ', ' + str(np.mean(test_postlosses)))
             test_prelosses, test_postlosses = [], []
 
@@ -371,7 +372,7 @@ def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0
                 except tf.errors.OutOfRangeError:
                     break
                 
-            print('Test_prelosses: ' + str(test_prelosses) + ', Test_postlosses: ' + str(test_postlosses))
+            #print('Test_prelosses: ' + str(test_prelosses) + ', Test_postlosses: ' + str(test_postlosses))
             print('Validation results: ' + str(np.mean(test_prelosses)) + ', ' + str(np.mean(test_postlosses)))
             test_prelosses, test_postlosses = [], []
 

@@ -152,6 +152,8 @@ class DataGenerator(object):
             else:
                 tfdataset = self.create_nlp_classification_dataset(dataset, word2idx, repeat_dataset=False)
             tfdatasets.append(tfdataset)
+        if FLAGS.switch_datasets:
+            self.switch_datasets(tfdatasets)
         self.handle_inputa = tf.placeholder(tf.string, shape=[])
         self.handle_labela = tf.placeholder(tf.string, shape=[])
         self.handle_inputb = tf.placeholder(tf.string, shape=[])
@@ -160,6 +162,10 @@ class DataGenerator(object):
         self.dataset_itrs = [self.get_oneshot_itr_from_datasets(tfdatasets[i]) if i!=len(tfdatasets)-1 else self.get_initializable_iter_from_datasets(tfdatasets[i]) for i in range(len(tfdatasets))]
         self.test_init_ops = self.get_init_ops_from_iters(self.dataset_itrs[-1])
         return next_items
+
+    def switch_datasets(self, tfdatasets):
+        tfdatasets[0][2], tfdatasets[0][3], tfdatasets[1][2], tfdatasets[1][3] = tfdatasets[1][2], tfdatasets[1][3], tfdatasets[0][2], tfdatasets[0][3]
+        
 
     
     def create_nlp_classification_dataset(self, dataset, word2idx, repeat_dataset=True):
@@ -251,7 +257,7 @@ class DataGenerator(object):
         dataset_inputb = dataset_allb.map(lambda a,b,c,d,e:(a,b,d,e))
         dataset_labelb = dataset_allb.map(lambda a,b,c,d,e:c)
 
-        return (dataset_inputa, dataset_labela, dataset_inputb, dataset_labelb)
+        return [dataset_inputa, dataset_labela, dataset_inputb, dataset_labelb]
 
     
     def get_itr_and_next_from_dataset(self, datasets):
