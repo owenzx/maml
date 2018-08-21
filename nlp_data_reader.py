@@ -250,9 +250,9 @@ def readTopic3Way(datafolder="./data/", debug=True, num_instances=99999999):
 
 
 def main():
-    train_set, dev_set, test_set = readTopic3Way(datafolder='./data/')
+    train_set, dev_set, test_set = readTopic3Way(datafolder='./data/semeval2016-task4c-topic-based-sentiment')
     print(train_set.keys())
-    print(train_set['stance'])
+    print(train_set['seq1'])
 
 if __name__ == "__main__":
     main()

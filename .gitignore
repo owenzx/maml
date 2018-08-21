@@ -101,3 +101,4 @@ tmp*
 
 *.out
 tmp.py
+*.sh

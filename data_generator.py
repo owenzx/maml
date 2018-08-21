@@ -6,7 +6,7 @@ import tensorflow as tf
 
 from tensorflow.python.platform import flags
 from utils import get_images, get_pad_batch, get_pad_metabatch, get_batch_labels, get_metabatch_labels
-from nlp_data_reader import read_absa_restaurants, read_absa_laptops, read_target_dependent
+from nlp_data_reader import read_absa_restaurants, read_absa_laptops, read_target_dependent, readTopic3Way
 import nltk
 FLAGS = flags.FLAGS
 
@@ -189,7 +189,7 @@ class DataGenerator(object):
 
         #dataset_size = int(dataset_size / total_batch_size) * total_batch_size
         
-        dataset['labels'] = [x.lower() for x in dataset['labels']]
+        dataset['labels'] = [str(x).lower() for x in dataset['labels']]
 
         print(dataset_size)
         for i in range(dataset_size):
@@ -200,7 +200,7 @@ class DataGenerator(object):
             #ctgr = np.array([word2idx.get(x,word2idx['UNK']) for x in dataset['seq1'][j].lower().split()])
             text = np.array([word2idx.get(x,word2idx['UNK']) for x in nltk.word_tokenize(dataset['seq2'][j].lower())])
             ctgr = np.array([word2idx.get(x,word2idx['UNK']) for x in nltk.word_tokenize(dataset['seq1'][j].lower())])
-            label = np.array(dataset['labels'].index(dataset['stance'][j]))
+            label = np.array(dataset['labels'].index(str(dataset['stance'][j])))
             text_len = np.array(len(text))
             ctgr_len = np.array(len(ctgr))
 
