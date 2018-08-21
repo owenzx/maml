@@ -88,6 +88,9 @@ flags.DEFINE_integer('gpu_id', -1, 'the id of the gpu to use')
 
 flags.DEFINE_string('absa_domain', 'restaurant', 'specific domain of the absa dataset')
 
+flags.DEFINE_bool('q2c', True, '')
+flags.DEFINE_bool('query_dots', True, '')
+
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100
     SAVE_INTERVAL = 1000

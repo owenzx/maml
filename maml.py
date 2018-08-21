@@ -12,6 +12,7 @@ except KeyError as e:
 from tensorflow.python.platform import flags
 from utils import mse, xent, conv_block, normalize, read_pretrained_embeddings, rnncell, build_cells, xent_onehot
 from customized_cells import Customized_BasicLSTMCell
+from bidaf import BiAttention_no_var
 
 FLAGS = flags.FLAGS
 
@@ -46,8 +47,8 @@ class MAML:
                 self.channels = 1
             self.img_size = int(np.sqrt(self.dim_input/self.channels))
         elif FLAGS.datasource == 'absa' or FLAGS.datasource == 'transfer_multi':
-            self.forward = self.forward_rnn
-            self.construct_weights = self.construct_rnn_weights
+            self.forward = self.forward_better_rnn
+            self.construct_weights = self.construct_better_rnn_weights
             self.vocab_size = 40000 + 2 #default choice
             self.dim_hidden =200
             self.dim_output = 3
@@ -108,6 +109,7 @@ class MAML:
 
                 grads = tf.gradients(task_lossa, list(weights.values()))
                 if FLAGS.stop_grad:
+                    #TODO: allow some weights to not have grads
                     grads = [tf.stop_gradient(grad) for grad in grads]
                 gradients = dict(zip(weights.keys(), grads))
                 #print([(c,type(weights[c])) for c in weights.keys()])
@@ -210,7 +212,7 @@ class MAML:
         weights['b'+str(len(self.dim_hidden)+1)] = tf.Variable(tf.zeros([self.dim_output]))
         return weights
 
-    def forward_fc(self, inp, weights, reuse=False):
+    def forward_fc(self, inp, weights, reuse=False, is_train=True):
         hidden = normalize(tf.matmul(inp, weights['w1']) + weights['b1'], activation=tf.nn.relu, reuse=reuse, scope='0')
         for i in range(1,len(self.dim_hidden)):
             hidden = normalize(tf.matmul(hidden, weights['w'+str(i+1)]) + weights['b'+str(i+1)], activation=tf.nn.relu, reuse=reuse, scope=str(i+1))
@@ -241,7 +243,7 @@ class MAML:
             weights['b5'] = tf.Variable(tf.zeros([self.dim_output]), name='b5')
         return weights
 
-    def forward_conv(self, inp, weights, reuse=False, scope=''):
+    def forward_conv(self, inp, weights, reuse=False, scope='', is_train=True):
         # reuse is for the normalization parameters.
         channels = self.channels
         inp = tf.reshape(inp, [-1, self.img_size, self.img_size, channels])
@@ -257,6 +259,157 @@ class MAML:
             hidden4 = tf.reduce_mean(hidden4, [1, 2])
 
         return tf.matmul(hidden4, weights['w5']) + weights['b5']
+
+    
+    def construct_better_rnn_weights(self):
+        weights = {}
+        self.cells = {}
+
+        dtype = tf.float32
+        fc_initializer = tf.contrib.layers.xavier_initializer(dtype=dtype)
+        if FLAGS.pretrain_embedding == 'none':
+            emb_initializer = tf.contrib.layers.xavier_initializer(dtype=dtype)
+            weights['emb'] = tf.get_variable('emb',[self.vocab_size, self.dim_emb], initializer=emb_initializer)
+        elif FLAGS.pretrain_embedding == 'glove':
+            emb_initializer = tf.constant_initializer(self.pretrain_embedding)
+            weights['emb'] = tf.get_variable('emb', [self.vocab_size, self.dim_emb], initializer = emb_initializer, trainable=True)
+            
+        
+
+
+
+        self.cells['text_cell_forw'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
+        self.cells['text_cell_back'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
+        self.cells['ctgr_cell_forw'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
+        self.cells['ctgr_cell_back'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
+        self.cells['aftbidaf_cell_forw'] = [rnncell(4*self.dim_hidden) for _ in range(2)]
+        self.cells['aftbidaf_cell_back'] = [rnncell(4*self.dim_hidden) for _ in range(2)]
+
+        num_rnn_hiddens = [self.dim_emb] + [self.dim_hidden for _ in range(self.num_layers-1)]
+        num_aftbidaf_rnn_hiddens =  [4*self.dim_hidden for _ in range(2)]
+        #All the rnn cells must be built so that their weights can be accessed
+        build_cells(self.cells['text_cell_forw'], num_rnn_hiddens)
+        build_cells(self.cells['text_cell_back'], num_rnn_hiddens)
+        build_cells(self.cells['ctgr_cell_forw'], num_rnn_hiddens)
+        build_cells(self.cells['ctgr_cell_back'], num_rnn_hiddens)
+        build_cells(self.cells['aftbidaf_cell_forw'], num_aftbidaf_rnn_hiddens)
+        build_cells(self.cells['aftbidaf_cell_back'], num_aftbidaf_rnn_hiddens)
+
+
+        #Note that currently, the following code only works for LSTM cells 
+        for i, c in enumerate(self.cells['text_cell_forw']):
+            weights['text_cell_forw_%d_w'%i], weights['text_cell_forw_%d_b'%i] = c.weights
+        for i, c in enumerate(self.cells['text_cell_back']):
+            weights['text_cell_back_%d_w'%i], weights['text_cell_back_%d_b'%i] = c.weights
+        for i, c in enumerate(self.cells['ctgr_cell_forw']):
+            weights['ctgr_cell_forw_%d_w'%i], weights['ctgr_cell_forw_%d_b'%i] = c.weights
+        for i, c in enumerate(self.cells['ctgr_cell_back']):
+            weights['ctgr_cell_back_%d_w'%i], weights['ctgr_cell_back_%d_b'%i] = c.weights
+        #print([type(weights[c]) for c in weights.keys()])
+        for i, c in enumerate(self.cells['aftbidaf_cell_forw']):
+            weights['aftbidaf_cell_forw_%d_w'%i], weights['aftbidaf_cell_forw_%d_b'%i] = c.weights
+        for i, c in enumerate(self.cells['aftbidaf_cell_back']):
+            weights['aftbidaf_cell_back_%d_w'%i], weights['aftbidaf_cell_back_%d_b'%i] = c.weights
+
+        self.biattention = BiAttention_no_var()
+        #TODO: need to recheck initialization methods
+        #weights["bidaf_bias"]= tf.Variable(tf.zeros([self.dim_hidden]), name = 'bidaf_bias')
+        weights["bidaf_key_w"]= tf.get_variable('bidaf_key_w', [self.dim_hidden], initializer = fc_initializer)
+        weights["bidaf_input_w"]= tf.get_variable('bidaf_input_w', [self.dim_hidden], initializer = fc_initializer)
+        weights["bidaf_dot_w"]= tf.get_variable('bidaf_dot_w', [self.dim_hidden], initializer = fc_initializer)
+        
+
+        weights['w1'] = tf.get_variable('w1', [8*self.dim_hidden, self.dim_hidden], initializer = fc_initializer)
+        weights['b1'] = tf.Variable(tf.zeros([self.dim_hidden]), name = 'b1')
+        weights['w2'] = tf.get_variable('w2', [self.dim_hidden, self.dim_output], initializer = fc_initializer)
+        weights['b2'] = tf.Variable(tf.zeros([self.dim_output]), name='b2')
+        return weights
+
+    def forward_better_rnn(self, inp, weights, reuse=False, scope= '', is_train=True):
+        cells=dict()
+        cells['text_cell_forw'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
+        cells['text_cell_back'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
+        cells['ctgr_cell_forw'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
+        cells['ctgr_cell_back'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
+        cells['aftbidaf_cell_forw'] = [rnncell(4*self.dim_hidden) for _ in range(2)]
+        cells['aftbidaf_cell_back'] = [rnncell(4*self.dim_hidden) for _ in range(2)]
+
+        #first update the weights of all the rnn cells
+        for k in self.cells.keys():
+            if 'aftbidaf' in k:
+                for n in range(2):
+                        cells[k][n].update_weights(weights[k+"_%d_"%n+"w"], weights[k+"_%d_"%n+"b"])
+            else:
+                for n in range(self.num_layers):
+                        cells[k][n].update_weights(weights[k+"_%d_"%n+"w"], weights[k+"_%d_"%n+"b"])
+
+        text_tok, ctgr_tok, text_len, ctgr_len = inp
+
+        text_vec = tf.nn.embedding_lookup(weights['emb'], text_tok)
+        ctgr_vec = tf.nn.embedding_lookup(weights['emb'], ctgr_tok)
+        #print(text_vec.shape)
+
+        output = text_vec
+        for n in range(self.num_layers):
+            cell_fw = cells['text_cell_forw'][n]
+            cell_bw = cells['text_cell_back'][n]
+
+            state_fw = cell_fw.zero_state(self.batch_size, tf.float32)
+            state_bw = cell_bw.zero_state(self.batch_size, tf.float32)
+
+            (output_fw, output_bw), last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, output, sequence_length=text_len, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_text_'+str(n), dtype = tf.float32)
+
+            output = output_fw + output_bw
+        #last_fw, last_bw = last_state
+        #text_hidden = tf.concat([last_fw.h, last_bw.h], axis = -1)
+        text_hidden = output
+
+        output = ctgr_vec
+        for n in range(self.num_layers):
+            cell_fw = cells['ctgr_cell_forw'][n]
+            cell_bw = cells['ctgr_cell_back'][n]
+
+            state_fw = cell_fw.zero_state(self.batch_size, tf.float32)
+            state_bw = cell_bw.zero_state(self.batch_size, tf.float32)
+
+            (output_fw, output_bw), last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, output, sequence_length=ctgr_len, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_ctgr_'+str(n), dtype = tf.float32)
+
+            output = output_fw + output_bw
+        #last_fw, last_bw = last_state
+        #ctgr_hidden = tf.concat([last_fw.h, last_bw.h], axis=-1)
+        ctgr_hidden = output
+
+
+        max_text_len = tf.shape(text_tok)[1]
+        max_ctgr_len = tf.shape(ctgr_tok)[1]
+        text_mask = tf.sequence_mask(text_len, max_text_len)
+        ctgr_mask = tf.sequence_mask(ctgr_len, max_ctgr_len)
+
+        p = self.biattention.apply(is_train, text_hidden, ctgr_hidden, ctgr_hidden, x_mask = text_mask, mem_mask= ctgr_mask, weights=weights, prefix="bidaf_")
+
+        #print(p.shape)
+        output = p
+        for n in range(2):
+            cell_fw = cells['aftbidaf_cell_forw'][n]
+            cell_bw = cells['aftbidaf_cell_back'][n]
+
+            state_fw = cell_fw.zero_state(self.batch_size, tf.float32)
+            state_bw = cell_bw.zero_state(self.batch_size, tf.float32)
+
+            (output_fw, output_bw), last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, output, sequence_length=ctgr_len, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_ctgr_'+str(n), dtype = tf.float32)
+
+            #output = tf.concat([output_fw, output_bw], axis = 2)
+            output = output_fw + output_bw
+        last_fw, last_bw = last_state
+        final_hidden = tf.concat([last_fw.h, last_bw.h], axis=-1)
+        
+        #print("TEXT_HIDDEN.SHAPE:"+str(text_hidden.shape))
+        #print("CTGR_HIDDEN.SHAPE:"+str(ctgr_hidden.shape))
+        cat_hidden = tf.nn.relu(final_hidden)
+        cat_hidden_2 = tf.nn.relu(tf.matmul(cat_hidden, weights['w1']) + weights['b1'])
+        final_output = tf.matmul(cat_hidden_2, weights['w2']) + weights['b2']
+        #final_output = tf.Print(final_output, [final_output])
+        return final_output
 
     def construct_rnn_weights(self):
         weights = {}
@@ -305,7 +458,7 @@ class MAML:
         return weights
 
 
-    def forward_rnn(self, inp, weights, reuse=False, scope=''):
+    def forward_rnn(self, inp, weights, reuse=False, scope='', is_train=True):
         cells=dict()
         cells['text_cell_forw'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
         cells['text_cell_back'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
