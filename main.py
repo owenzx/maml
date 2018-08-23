@@ -218,6 +218,10 @@ def train_transfer(model, saver, sess, exp_string, data_generator, resume_epoch=
             #print(handles)
             #print(type(handles))
             feed_dict = {data_generator.handle_inputa:handles[0], data_generator.handle_labela:handles[1], data_generator.handle_inputb:handles[2], data_generator.handle_labelb:handles[3]}
+            #print(i)
+            #sess.run([model.pretrain_op], feed_dict=feed_dict)
+            #sess.run([model.metatrain_op], feed_dict=feed_dict)
+            #print(-i)
             if epoch < FLAGS.pretrain_epochs:
                 input_tensors = [model.pretrain_op]
             else:
@@ -227,6 +231,7 @@ def train_transfer(model, saver, sess, exp_string, data_generator, resume_epoch=
                 input_tensors.extend([model.total_loss1, model.total_losses2[FLAGS.num_updates-1]])
                 if model.classification:
                     input_tensors.extend([model.total_accuracy1, model.total_accuracies2[FLAGS.num_updates-1]])                
+            #print(i)
             result = sess.run(input_tensors, feed_dict=feed_dict)
             if itr % SUMMARY_INTERVAL == 0:
                     prelosses.append(result[-2])

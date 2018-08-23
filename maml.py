@@ -174,8 +174,8 @@ class MAML:
                 self.total_accuracy1 = total_accuracy1 = tf.reduce_sum(accuraciesa) / tf.to_float(FLAGS.meta_batch_size)
                 self.total_accuracies2 = total_accuracies2 = [tf.reduce_sum(accuraciesb[j]) / tf.to_float(FLAGS.meta_batch_size) for j in range(num_updates)]
             #self.debug_grads = tf.gradients(total_loss1, [self.weights['w2'], self.weights['text_cell_forw_0_w']])
-            #self.pretrain_op = tf.train.AdamOptimizer(self.meta_lr).minimize(total_loss1)
-            self.pretrain_op = tf.train.GradientDescentOptimizer(0.01*self.meta_lr).minimize(total_loss1)
+            self.pretrain_op = tf.train.AdamOptimizer(self.meta_lr).minimize(total_loss1)
+            #self.pretrain_op = tf.train.GradientDescentOptimizer(0.01*self.meta_lr).minimize(total_loss1)
 
             if FLAGS.metatrain_iterations > 0:
                 optimizer = tf.train.AdamOptimizer(self.meta_lr)
@@ -396,7 +396,7 @@ class MAML:
             state_fw = cell_fw.zero_state(self.batch_size, tf.float32)
             state_bw = cell_bw.zero_state(self.batch_size, tf.float32)
 
-            (output_fw, output_bw), last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, output, sequence_length=ctgr_len, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_ctgr_'+str(n), dtype = tf.float32)
+            (output_fw, output_bw), last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, output, sequence_length=ctgr_len, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_aftbidaf_'+str(n), dtype = tf.float32)
 
             #output = tf.concat([output_fw, output_bw], axis = 2)
             output = output_fw + output_bw
