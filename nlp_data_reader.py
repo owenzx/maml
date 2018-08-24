@@ -34,6 +34,23 @@ def split_train_data(data_train):
     data_dev['labels'] = data_train['labels']
     return new_data_train, data_dev
 
+def parse_snli(file_path, debug=False, num_instances=999999999999999):
+    import pandas
+    df = pandas.read_csv(file_path, sep='\t')
+    df_needed = df[['sentence1','sentence2','gold_label']]
+    df_needed.columns = ['seq1', 'seq2', 'stance']
+    data = df_needed.to_dict(orient='list')
+    data['labels'] = sorted(list(set(data['stance'])))
+    return data
+
+def read_snli(datafolder="", debug=True, num_instances=99999999999999):
+    train_path = os.path.join(datafolder, 'snli_1.0_train.txt')
+    dev_path = os.path.join(datafolder, 'snli_1.0_dev.txt')
+    test_path = os.path.join(datafolder, 'snli_1.0_test.txt')
+    data_train = parse_snli(train_path)
+    data_dev = parse_snli(dev_path, debug, num_instances)
+    data_test = parse_snli(test_path, debug, num_instances)
+    return data_train, data_dev, data_test
 
 def read_absa_laptops(datafolder="./data/", debug=True, num_instances=9999999999):
     return read_absa('Laptops', datafolder, debug, num_instances)
@@ -52,7 +69,7 @@ def read_absa(domain, datafolder="./data/", debug=True, num_instances=20):
         assert os.path.exists(path_), 'Error: %s does not exist.' % path_
 
     data_train = parse_absa(train_path, debug, num_instances)
-    data_test = parse_absa(test_path)
+    data_test = parse_absa(test_path, debug, num_instances)
 
     # trial data is a subset of training data; instead we split the train data
     data_train, data_dev = split_train_data(data_train)
@@ -95,7 +112,7 @@ def read_target_dependent(datafolder="./data/", debug=True, num_instances=999999
         assert os.path.exists(path_), 'Error: %s does not exist.' % path_
 
     data_train = parse_target_dependent(train_path, debug, num_instances)
-    data_test = parse_target_dependent(test_path)
+    data_test = parse_target_dependent(test_path, debug, num_instances)
     data_train, data_dev = split_train_data(data_train)
     return data_train, data_dev, data_test
 
@@ -250,9 +267,11 @@ def readTopic3Way(datafolder="./data/", debug=True, num_instances=99999999):
 
 
 def main():
-    train_set, dev_set, test_set = readTopic3Way(datafolder='./data/semeval2016-task4c-topic-based-sentiment')
+    train_set, dev_set, test_set = read_snli(datafolder='./data/SNLI')
     print(train_set.keys())
-    print(train_set['seq1'])
+    print(train_set['stance'])
+    print(train_set['labels'])
+    #print(train_set['seq1'])
 
 if __name__ == "__main__":
     main()
