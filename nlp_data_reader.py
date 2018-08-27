@@ -39,6 +39,8 @@ def parse_snli(file_path, debug=False, num_instances=999999999999999):
     df = pandas.read_csv(file_path, sep='\t')
     df_needed = df[['sentence1','sentence2','gold_label']]
     df_needed.columns = ['seq1', 'seq2', 'stance']
+    df_needed = df_needed.query('stance != \'-\'')
+    df_needed = df_needed.dropna()
     data = df_needed.to_dict(orient='list')
     data['labels'] = sorted(list(set(data['stance'])))
     return data
@@ -267,11 +269,10 @@ def readTopic3Way(datafolder="./data/", debug=True, num_instances=99999999):
 
 
 def main():
-    train_set, dev_set, test_set = read_snli(datafolder='./data/SNLI')
+    train_set, dev_set, test_set = read_snli(datafolder='./data/SNLI/original')
     print(train_set.keys())
-    print(train_set['stance'])
+    #print(train_set['seq2'])
     print(train_set['labels'])
-    #print(train_set['seq1'])
 
 if __name__ == "__main__":
     main()

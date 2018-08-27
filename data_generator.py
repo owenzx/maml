@@ -6,8 +6,9 @@ import tensorflow as tf
 
 from tensorflow.python.platform import flags
 from utils import get_images, get_pad_batch, get_pad_metabatch, get_batch_labels, get_metabatch_labels
-from nlp_data_reader import read_absa_restaurants, read_absa_laptops, read_target_dependent, readTopic3Way
+from nlp_data_reader import read_absa_restaurants, read_absa_laptops, read_target_dependent, readTopic3Way, read_snli
 import nltk
+from constants import *
 FLAGS = flags.FLAGS
 
 class DataGenerator(object):
@@ -79,20 +80,23 @@ class DataGenerator(object):
             self.metatrain_character_folders = metatrain_folders
             self.metaval_character_folders = metaval_folders
             self.rotations = config.get('rotations', [0])
-        elif FLAGS.datasource == 'absa':
-            self.make_data_tensor = self.make_data_tensor_absa
+        elif FLAGS.datasource in NLP_SINGLE_DATASETS:
+            self.make_data_tensor = self.make_data_tensor_nlp_2inp
             self.num_classes = config.get('num_classes', FLAGS.num_classes)
-#            from data.semeval.data_loader import SemEvalDataLoader
-#            d_loader = SemEvalDataLoader()
-#            self.train_data = d_loader.get_data(task="BD", years=2016, datasets = "train", only_semeval=True) 
             self.dim_output = self.num_classes
-            if FLAGS.absa_domain == 'restaurant':
-                data_train, data_dev, data_test = read_absa_restaurants(datafolder='./data/semeval_task5')
-            elif FLAGS.absa_domain == 'laptop':
-                data_train, data_dev, data_test = read_absa_laptops(datafolder='./data/semeval_task5')
+            if FLAGS.datasource == 'absa':
+                if FLAGS.absa_domain == 'restaurant':
+                    data_train, data_dev, data_test = read_absa_restaurants(datafolder='./data/semeval_task5')
+                elif FLAGS.absa_domain == 'laptop':
+                    data_train, data_dev, data_test = read_absa_laptops(datafolder='./data/semeval_task5')
+            elif FLAGS.datasource == 'SNLI':
+                data_train, data_dev, data_test = read_snli(datafolder = './data/SNLI/original')
+
+
             train_dataset = data_train
             if FLAGS.test_set:
                 val_dataset = data_test
+                val_dataset = data_train
             else:
                 val_dataset = data_dev
             self.train_dataset = train_dataset
@@ -302,7 +306,7 @@ class DataGenerator(object):
 
 
 
-    def make_data_tensor_absa(self, word2idx, train=True):
+    def make_data_tensor_nlp_2inp(self, word2idx, train=True):
         if train:
             dataset = self.train_dataset
         else:
@@ -383,9 +387,11 @@ class DataGenerator(object):
         dataset_alla = tf.data.Dataset.zip((dataset_text, dataset_ctgr, dataset_label, dataset_text_len, dataset_ctgr_len))
     
         dataset_allb = dataset_alla.map(lambda a,b,c,d,e:(a,b,c,d,e))
+        
+        #TODO:enable shuffling for large datasets
+        #dataset_alla = dataset_alla.shuffle(dataset_size)
+        #dataset_allb = dataset_allb.shuffle(dataset_size)
 
-        dataset_alla = dataset_alla.shuffle(dataset_size)
-        dataset_allb = dataset_allb.shuffle(dataset_size)
         #dataset_alla = dataset_alla.repeat()
         #dataset_allb = dataset_allb.repeat()
 

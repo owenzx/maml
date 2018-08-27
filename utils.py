@@ -91,6 +91,8 @@ def read_pretrained_embeddings():
     return weights, word2idx
 
 def rnncell(dim_hidden):
+    #keep_prob = 1.0-FLAGS.dropout_rate
+    #return tf.nn.rnn_cell.DropoutWrapper(Customized_BasicLSTMCell(num_units = dim_hidden, dtype=tf.float32), input_keep_prob=keep_prob)
     return Customized_BasicLSTMCell(num_units = dim_hidden, dtype=tf.float32)
 
 def build_cells(cells, dim_input):

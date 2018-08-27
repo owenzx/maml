@@ -29,6 +29,7 @@ import pickle
 import random
 import tensorflow as tf
 import os
+import sys
 
 from data_generator import DataGenerator
 from maml import MAML
@@ -88,9 +89,11 @@ flags.DEFINE_string('pretrain_embedding_path', '', 'the path of the pretrained e
 flags.DEFINE_integer('gpu_id', -1, 'the id of the gpu to use')
 
 flags.DEFINE_string('absa_domain', 'restaurant', 'specific domain of the absa dataset')
+flags.DEFINE_string('model', 'bidaf', 'choose the model used in nlp experiments')
 
 flags.DEFINE_bool('q2c', True, '')
 flags.DEFINE_bool('query_dots', True, '')
+flags.DEFINE_float('dropout_rate', 0.1, 'dropout rate')
 
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100
@@ -324,9 +327,14 @@ def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0
                 #print(itr)
                 if (itr % SUMMARY_INTERVAL == 0):
                     #input_tensors.extend([model.summ_op, model.total_loss1, model.total_losses2[FLAGS.num_updates-1]])
-                    input_tensors.extend([model.total_loss1, model.total_losses2[FLAGS.num_updates-1]])
-                    if model.classification:
-                        input_tensors.extend([model.total_accuracy1, model.total_accuracies2[FLAGS.num_updates-1]])                
+                    if epoch < FLAGS.pretrain_epochs:
+                        input_tensors.extend([model.total_loss1])
+                        if model.classification:
+                            input_tensors.extend([model.total_accuracy1])                
+                    else:
+                        input_tensors.extend([model.total_loss1, model.total_losses2[FLAGS.num_updates-1]])
+                        if model.classification:
+                            input_tensors.extend([model.total_accuracy1, model.total_accuracies2[FLAGS.num_updates-1]])                
                 #options = tf.RunOptions(trace_level = tf.RunOptions.FULL_TRACE)
                 #run_metadata = tf.RunMetadata()
                 #result = sess.run(input_tensors, options = options, run_metadata = run_metadata)
@@ -337,10 +345,12 @@ def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0
                 result = sess.run(input_tensors)
                 #print(result[1])
                 if itr % SUMMARY_INTERVAL == 0:
-                    prelosses.append(result[-2])
-                    #if FLAGS.log:
-                    #    train_writer.add_summary(result[1], itr)
-                    postlosses.append(result[-1])                
+                    if epoch < FLAGS.pretrain_epochs:
+                        prelosses.append(result[-1])
+                    else:
+                        prelosses.append(result[-2])
+                        postlosses.append(result[-1])                
+
             except tf.errors.OutOfRangeError:
                 break
 
@@ -352,14 +362,22 @@ def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0
         if epoch % PRINT_INTERVAL == 0:
             if epoch < FLAGS.pretrain_epochs:
                 print_str = 'Pretrain Epoch ' + str(epoch)
+                print_str += ': ' + str(np.mean(prelosses))
             else:
                 print_str = 'Epoch ' + str(epoch - FLAGS.pretrain_epochs)
-            print_str += ': ' + str(np.mean(prelosses)) + ', ' + str(np.mean(postlosses))
+                print_str += ': ' + str(np.mean(prelosses)) + ', ' + str(np.mean(postlosses))
             print(print_str)
+            sys.stdout.flush()
+
             prelosses, postlosses = [], []
 
         if epoch % SAVE_INTERVAL == 0:
             saver.save(sess, FLAGS.logdir + '/' + exp_string + '/model' + str(epoch))
+
+        if FLAGS.metatrain_epochs == 0:
+            no_meta = True
+        else:
+            no_meta = False
 
         if epoch % TEST_PRINT_INTERVAL == 0 and FLAGS.datasource !='sinusoid':
             sess.run(test_init_op_inputa)
@@ -370,18 +388,30 @@ def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0
                 try:
                     feed_dict = {}
                     if model.classification:
-                        input_tensors = [model.metaval_total_accuracy1, model.metaval_total_accuracies2[FLAGS.num_updates-1]]
+                        if no_meta:
+                            input_tensors = [model.metaval_total_accuracy1]
+                        else:
+                            input_tensors = [model.metaval_total_accuracy1, model.metaval_total_accuracies2[FLAGS.num_updates-1]]
                     else:
-                        input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1]]
+                        if no_meta:
+                            input_tensors = [model.metaval_total_loss1]
+                        else:
+                            input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1]]
                     result = sess.run(input_tensors, feed_dict)
-                    test_prelosses.append(result[-2])
-                    test_postlosses.append(result[-1])
+                    if no_meta:
+                        test_prelosses.append(result[-1])
+                    else:
+                        test_prelosses.append(result[-2])
+                        test_postlosses.append(result[-1])
                     #print("running")
                 except tf.errors.OutOfRangeError:
                     break
                 
             #print('Test_prelosses: ' + str(test_prelosses) + ', Test_postlosses: ' + str(test_postlosses))
-            print('Validation results: ' + str(np.mean(test_prelosses)) + ', ' + str(np.mean(test_postlosses)))
+            if no_meta:
+                print('Validation results: ' + str(np.mean(test_prelosses)))
+            else:
+                print('Validation results: ' + str(np.mean(test_prelosses)) + ', ' + str(np.mean(test_postlosses)))
             test_prelosses, test_postlosses = [], []
 
     saver.save(sess, FLAGS.logdir + '/' + exp_string +  '/model' + str(itr))
@@ -568,7 +598,7 @@ def main():
                     data_generator = DataGenerator(FLAGS.update_batch_size+15, FLAGS.meta_batch_size)  # only use one datapoint for testing to save memory
                 else:
                     data_generator = DataGenerator(FLAGS.update_batch_size*2, FLAGS.meta_batch_size)  # only use one datapoint for testing to save memory
-            elif FLAGS.datasource == 'absa' or FLAGS.datasource == 'transfer_multi':
+            elif FLAGS.datasource == 'absa' or FLAGS.datasource == 'transfer_multi' or FLAGS.datasource == 'SNLI':
                 data_generator = DataGenerator(FLAGS.update_batch_size, FLAGS.meta_batch_size)
             else:
                 data_generator = DataGenerator(FLAGS.update_batch_size*2, FLAGS.meta_batch_size)  # only use one datapoint for testing to save memory
@@ -605,17 +635,7 @@ def main():
         labela = tf.slice(label_tensor, [0,0,0], [-1,num_classes*FLAGS.update_batch_size, -1])
         labelb = tf.slice(label_tensor, [0,num_classes*FLAGS.update_batch_size, 0], [-1,-1,-1])
         metaval_input_tensors = {'inputa': inputa, 'inputb': inputb, 'labela': labela, 'labelb': labelb}
-    elif FLAGS.datasource == 'absa':
-#        tf_data_load = True
-
-#        if FLAGS.train:
-#            random.seed(5)
-#            text_tensor, cgtr_tensor, label_tensor = data_generator.make_data_tensor(word2idx)
-#            input_tensors = {}
-#        random.seed(6)
-#        text_tensor, cgtr_tensor, label_tensor = data_generator.make_data_tensor(word2idx, train=False)
-        #TODO
-        #not loading the dataset into the graph
+    elif FLAGS.datasource == 'absa' or FLAGS.datasource == 'SNLI':
         tf_data_load = True
         if FLAGS.train:
             random.seed(5)
@@ -708,14 +728,14 @@ def main():
             saver.restore(sess, model_file)
 
     if FLAGS.train:
-        if FLAGS.datasource == 'absa':
+        if FLAGS.datasource in ['absa', 'SNLI']:
             train_dataset(model, saver, sess, exp_string, data_generator, resume_itr, train_set_init_ops, test_set_init_ops)
         elif FLAGS.datasource =='transfer_multi':
             train_transfer(model, saver, sess, exp_string, data_generator, resume_itr) 
         else:
             train(model, saver, sess, exp_string, data_generator, resume_itr)
     else:
-        if FLAGS.datasource == 'absa':
+        if FLAGS.datasource in ['absa', 'SNLI']:
             test_dataset(model, saver, sess, exp_string, data_generator, test_num_updates, test_set_init_ops)
         elif FLAGS.datasource == 'transfer_multi':
             test_transfer(model, saver, sess, exp_string, data_generator, resume_itr)

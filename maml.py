@@ -13,6 +13,7 @@ from tensorflow.python.platform import flags
 from utils import mse, xent, conv_block, normalize, read_pretrained_embeddings, rnncell, build_cells, xent_onehot
 from customized_cells import Customized_BasicLSTMCell
 from bidaf import BiAttention_no_var
+from constants import *
 
 FLAGS = flags.FLAGS
 
@@ -46,15 +47,19 @@ class MAML:
             else:
                 self.channels = 1
             self.img_size = int(np.sqrt(self.dim_input/self.channels))
-        elif FLAGS.datasource == 'absa' or FLAGS.datasource == 'transfer_multi':
-            self.forward = self.forward_better_rnn
-            self.construct_weights = self.construct_better_rnn_weights
+        elif FLAGS.datasource in NLP_DATASETS:
+            if FLAGS.model == "rnn":
+                self.forward = self.forward_rnn
+                self.construct_weights = self.construct_rnn_weights
+            elif FLAGS.model == "bidaf":
+                self.forward = self.forward_better_rnn
+                self.construct_weights = self.construct_better_rnn_weights
             self.vocab_size = 40000 + 2 #default choice
             self.dim_hidden =200
             self.dim_output = 3
             self.classification = True
             self.loss_func = xent_onehot
-            self.dim_emb = 100
+            self.dim_emb = 300
             self.num_layers = FLAGS.num_rnn_layers
             self.batch_size = FLAGS.update_batch_size
             #Other hyper-parameters
@@ -137,12 +142,12 @@ class MAML:
                 task_output = [task_outputa, task_outputbs, task_lossa, task_lossesb]
 
                 if self.classification:
-                    if FLAGS.datasource == 'absa' or FLAGS.datasource =='transfer_multi':
+                    if FLAGS.datasource in NLP_DATASETS:
                         task_accuracya = tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputa), 1), labela)
                     else:
                         task_accuracya = tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputa), 1), tf.argmax(labela, 1))
                     for j in range(num_updates):
-                        if FLAGS.datasource =='absa' or FLAGS.datasource == 'transfer_multi':
+                        if FLAGS.datasource in NLP_DATASETS:
                             task_accuraciesb.append(tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputbs[j]), 1), labelb))
                         else:
                             task_accuraciesb.append(tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputbs[j]), 1), tf.argmax(labelb, 1)))
@@ -326,6 +331,8 @@ class MAML:
         return weights
 
     def forward_better_rnn(self, inp, weights, reuse=False, scope= '', is_train=True):
+        keep_prob = 1-FLAGS.dropout_rate
+
         cells=dict()
         cells['text_cell_forw'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
         cells['text_cell_back'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
@@ -338,10 +345,14 @@ class MAML:
         for k in self.cells.keys():
             if 'aftbidaf' in k:
                 for n in range(2):
-                        cells[k][n].update_weights(weights[k+"_%d_"%n+"w"], weights[k+"_%d_"%n+"b"])
+                    cells[k][n].update_weights(weights[k+"_%d_"%n+"w"], weights[k+"_%d_"%n+"b"])
+                    if is_train:
+                        cells[k][n] = tf.nn.rnn_cell.DropoutWrapper(cells[k][n], input_keep_prob = keep_prob)
             else:
                 for n in range(self.num_layers):
-                        cells[k][n].update_weights(weights[k+"_%d_"%n+"w"], weights[k+"_%d_"%n+"b"])
+                    cells[k][n].update_weights(weights[k+"_%d_"%n+"w"], weights[k+"_%d_"%n+"b"])
+                    if is_train:
+                        cells[k][n] = tf.nn.rnn_cell.DropoutWrapper(cells[k][n], input_keep_prob = keep_prob)
 
         text_tok, ctgr_tok, text_len, ctgr_len = inp
 
@@ -407,6 +418,8 @@ class MAML:
         #print("CTGR_HIDDEN.SHAPE:"+str(ctgr_hidden.shape))
         cat_hidden = tf.nn.relu(final_hidden)
         cat_hidden_2 = tf.nn.relu(tf.matmul(cat_hidden, weights['w1']) + weights['b1'])
+        if is_train:
+            cat_hidden_2 = tf.nn.dropout(cat_hidden_2, keep_prob)
         final_output = tf.matmul(cat_hidden_2, weights['w2']) + weights['b2']
         #final_output = tf.Print(final_output, [final_output])
         return final_output
@@ -460,6 +473,9 @@ class MAML:
 
     def forward_rnn(self, inp, weights, reuse=False, scope='', is_train=True):
         cells=dict()
+
+        keep_prob = 1-FLAGS.dropout_rate
+
         cells['text_cell_forw'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
         cells['text_cell_back'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
         cells['ctgr_cell_forw'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
@@ -469,6 +485,8 @@ class MAML:
         for k in self.cells.keys():
             for n in range(self.num_layers):
                     cells[k][n].update_weights(weights[k+"_%d_"%n+"w"], weights[k+"_%d_"%n+"b"])
+                    if is_train:
+                        cells[k][n] = tf.nn.rnn_cell.DropoutWrapper(cells[k][n], input_keep_prob=keep_prob)
 
         text_tok, ctgr_tok, text_len, ctgr_len = inp
         #text_tok = tf.Print(text_tok, [text_tok], summarize=10000)
@@ -514,7 +532,11 @@ class MAML:
         #print("TEXT_HIDDEN.SHAPE:"+str(text_hidden.shape))
         #print("CTGR_HIDDEN.SHAPE:"+str(ctgr_hidden.shape))
         cat_hidden = tf.nn.relu(tf.concat([text_hidden, ctgr_hidden], axis = -1))
+        if is_train:
+            cat_hidden = tf.nn.dropout(cat_hidden, keep_prob)
         cat_hidden_2 = tf.nn.relu(tf.matmul(cat_hidden, weights['w1']) + weights['b1'])
+        if is_train:
+            cat_hidden_2 = tf.nn.dropout(cat_hidden_2, keep_prob)
         final_output = tf.matmul(cat_hidden_2, weights['w2']) + weights['b2']
         #final_output = tf.Print(final_output, [final_output])
         return final_output
