@@ -6,7 +6,7 @@ import tensorflow as tf
 
 from tensorflow.python.platform import flags
 from utils import get_images, get_pad_batch, get_pad_metabatch, get_batch_labels, get_metabatch_labels
-from nlp_data_reader import read_absa_restaurants, read_absa_laptops, read_target_dependent, readTopic3Way, read_snli
+from nlp_data_reader import read_absa_restaurants, read_absa_laptops, read_target_dependent, readTopic3Way, read_snli, read_sst
 import nltk
 from constants import *
 FLAGS = flags.FLAGS
@@ -104,6 +104,24 @@ class DataGenerator(object):
             
             self.dim_output = 3
             self.dim_input = -1 # do not use this value
+        elif FLAGS.datasource in NLP_1SEN_SENTIMENT_DATASETS:
+            self.make_data_tensor = self.make_data_tensor_1sen_senti
+            self.num_classes = config.get('num_classes', FLAGS.num_classes)
+            self.dim_output = self.num_classes
+            if FLAGS.datasource == 'sst':
+                data_train, data_dev, data_test = read_sst(datafolder='./data/stanfordSentimentTreebank'
+            elif FLAGS.datasource == 'imdb':
+                pass
+            train_dataset = data_train
+            if FLAGS.test_set:
+                val_dataset = data_test
+                val_dataset = data_train
+            else:
+                val_dataset = data_dev
+            self.train_dataset = train_dataset
+            self.val_dataset = val_dataset
+            self.dim_input = -1 # do not use this value
+
         elif FLAGS.datasource == 'transfer_multi':
             self.make_data_tensor = self.make_data_tensor_transfer_multi
             self.num_classes = config.get('num_classes', FLAGS.num_classes)
