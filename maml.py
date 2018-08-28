@@ -13,6 +13,7 @@ from tensorflow.python.platform import flags
 from utils import mse, xent, conv_block, normalize, read_pretrained_embeddings, rnncell, build_cells, xent_onehot
 from customized_cells import Customized_BasicLSTMCell
 from bidaf import BiAttention_no_var
+from multihead_attention import multihead_attention_no_var
 from constants import *
 
 FLAGS = flags.FLAGS
@@ -99,7 +100,7 @@ class MAML:
             lossesb = [[]]*num_updates
             accuraciesb = [[]]*num_updates
 
-            def task_metalearn(inp, reuse=True):
+            def task_metalearn(inp, reuse=True, is_train=True):
                 """ Perform gradient descent for one task in the meta-batch. """
                 inputa, inputb, labela, labelb = inp
                 #inputa = tf.Print(inputa, [inputa], summarize=10000)
@@ -109,7 +110,7 @@ class MAML:
                 if self.classification:
                     task_accuraciesb = []
 
-                task_outputa = self.forward(inputa, weights, reuse=reuse)  # only reuse on the first iter
+                task_outputa = self.forward(inputa, weights, reuse=reuse, is_train=is_train)  # only reuse on the first iter
                 task_lossa = self.loss_func(task_outputa, labela)
 
                 grads = tf.gradients(task_lossa, list(weights.values()))
@@ -121,13 +122,13 @@ class MAML:
                 #print([(c,type(gradients[c])) for c in weights.keys()])
                 
                 fast_weights = dict(zip(weights.keys(), [weights[key] - self.update_lr*gradients[key] if key!='emb' else weights[key] - self.update_lr*tf.convert_to_tensor(gradients[key]) for key in weights.keys()]))
-                output = self.forward(inputb, fast_weights, reuse=True)
+                output = self.forward(inputb, fast_weights, reuse=True, is_train=is_train)
                 #output = tf.Print(output, [output])
                 task_outputbs.append(output)
                 task_lossesb.append(self.loss_func(output, labelb))
 
                 for j in range(num_updates - 1):
-                    loss = self.loss_func(self.forward(inputa, fast_weights, reuse=True), labela)
+                    loss = self.loss_func(self.forward(inputa, fast_weights, reuse=True, is_train=is_train), labela)
                     grads = tf.gradients(loss, list(fast_weights.values()))
                     if FLAGS.stop_grad:
                         grads = [tf.stop_gradient(grad) for grad in grads]
@@ -135,7 +136,7 @@ class MAML:
                     #print([(c,type(fast_weights[c])) for c in fast_weights.keys()])
                     #print([(c,type(gradients[c])) for c in fast_weights.keys()])
                     fast_weights = dict(zip(fast_weights.keys(), [fast_weights[key] - self.update_lr*gradients[key] if key!='emb' else fast_weights[key] - self.update_lr*tf.convert_to_tensor(gradients[key]) for key in fast_weights.keys()]))
-                    output = self.forward(inputb, fast_weights, reuse=True)
+                    output = self.forward(inputb, fast_weights, reuse=True, is_train=is_train)
                     task_outputbs.append(output)
                     task_lossesb.append(self.loss_func(output, labelb))
 
@@ -322,6 +323,18 @@ class MAML:
         weights["bidaf_key_w"]= tf.get_variable('bidaf_key_w', [self.dim_hidden], initializer = fc_initializer)
         weights["bidaf_input_w"]= tf.get_variable('bidaf_input_w', [self.dim_hidden], initializer = fc_initializer)
         weights["bidaf_dot_w"]= tf.get_variable('bidaf_dot_w', [self.dim_hidden], initializer = fc_initializer)
+
+        if FLAGS.num_attn_head > 0:
+            weights["text_self_att_q"] = tf.get_variable("text_self_att_q", [self.dim_hidden, self.dim_hidden])
+            weights["text_self_att_k"] = tf.get_variable("text_self_att_k", [self.dim_hidden, self.dim_hidden])
+            weights["text_self_att_v"] = tf.get_variable("text_self_att_v", [self.dim_hidden, self.dim_hidden])
+            weights["ctgr_self_att_q"] = tf.get_variable("ctgr_self_att_q", [self.dim_hidden, self.dim_hidden])
+            weights["ctgr_self_att_k"] = tf.get_variable("ctgr_self_att_k", [self.dim_hidden, self.dim_hidden])
+            weights["ctgr_self_att_v"] = tf.get_variable("ctgr_self_att_v", [self.dim_hidden, self.dim_hidden])
+            weights["final_self_att_q"] = tf.get_variable("final_self_att_q", [4*self.dim_hidden, 4*self.dim_hidden])
+            weights["final_self_att_k"] = tf.get_variable("final_self_att_k", [4*self.dim_hidden, 4*self.dim_hidden])
+            weights["final_self_att_v"] = tf.get_variable("final_self_att_v", [4*self.dim_hidden, 4*self.dim_hidden])
+
         
 
         weights['w1'] = tf.get_variable('w1', [8*self.dim_hidden, self.dim_hidden], initializer = fc_initializer)
@@ -371,6 +384,8 @@ class MAML:
             (output_fw, output_bw), last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, output, sequence_length=text_len, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_text_'+str(n), dtype = tf.float32)
 
             output = output_fw + output_bw
+            if (n==self.num_layers-2) and (FLAGS.num_attn_head > 0):
+                output= multihead_attention_no_var(output, output, num_units = self.dim_hidden * FLAGS.num_attn_head, num_heads = FLAGS.num_attn_head, is_training=is_train, scope = "text_self_att", weights= weights, prefix = "text_self_att_")
         #last_fw, last_bw = last_state
         #text_hidden = tf.concat([last_fw.h, last_bw.h], axis = -1)
         text_hidden = output
@@ -386,9 +401,12 @@ class MAML:
             (output_fw, output_bw), last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, output, sequence_length=ctgr_len, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_ctgr_'+str(n), dtype = tf.float32)
 
             output = output_fw + output_bw
+            if (n==self.num_layers-2) and (FLAGS.num_attn_head > 0):
+                output= multihead_attention_no_var(output, output, num_units = self.dim_hidden * FLAGS.num_attn_head, num_heads = FLAGS.num_attn_head, is_training=is_train, scope = "ctgr_self_att", weights= weights, prefix = "ctgr_self_att_")
         #last_fw, last_bw = last_state
         #ctgr_hidden = tf.concat([last_fw.h, last_bw.h], axis=-1)
         ctgr_hidden = output
+
 
 
         max_text_len = tf.shape(text_tok)[1]
@@ -411,6 +429,8 @@ class MAML:
 
             #output = tf.concat([output_fw, output_bw], axis = 2)
             output = output_fw + output_bw
+            if (n==0) and (FLAGS.num_attn_head > 0):
+                output = multihead_attention_no_var(output, output, num_units = self.dim_hidden * FLAGS.num_attn_head, num_heads = FLAGS.num_attn_head, is_training=is_train, scope = "final_self_att", weights= weights, prefix = "final_self_att_")
         last_fw, last_bw = last_state
         final_hidden = tf.concat([last_fw.h, last_bw.h], axis=-1)
         
@@ -468,6 +488,13 @@ class MAML:
             weights['ctgr_cell_back_%d_w'%i], weights['ctgr_cell_back_%d_b'%i] = c.weights
         #print([type(weights[c]) for c in weights.keys()])
         
+        if FLAGS.num_attn_head > 0:
+            weights["text_self_att_q"] = tf.get_variable("text_self_att_q", [self.dim_hidden, self.dim_hidden])
+            weights["text_self_att_k"] = tf.get_variable("text_self_att_k", [self.dim_hidden, self.dim_hidden])
+            weights["text_self_att_v"] = tf.get_variable("text_self_att_v", [self.dim_hidden, self.dim_hidden])
+            weights["ctgr_self_att_q"] = tf.get_variable("ctgr_self_att_q", [self.dim_hidden, self.dim_hidden])
+            weights["ctgr_self_att_k"] = tf.get_variable("ctgr_self_att_k", [self.dim_hidden, self.dim_hidden])
+            weights["ctgr_self_att_v"] = tf.get_variable("ctgr_self_att_v", [self.dim_hidden, self.dim_hidden])
         return weights
 
 
@@ -509,6 +536,8 @@ class MAML:
 
             #output = tf.concat([output_fw, output_bw], axis = 2)
             output = output_fw + output_bw
+            if (n==self.num_layers-2) and (FLAGS.num_attn_head > 0):
+                output = multihead_attention_no_var(output, output, num_units = self.dim_hidden , num_heads = FLAGS.num_attn_head, is_training=is_train, scope = "text_self_att", weights= weights, prefix = "text_self_att_")
         last_fw, last_bw = last_state
         text_hidden = tf.concat([last_fw.h, last_bw.h], axis = -1)
         #text_hidden = tf.concat([output[:,0,:],output[:,-1,:]],axis=-1)
@@ -525,12 +554,15 @@ class MAML:
 
             #output = tf.concat([output_fw, output_bw], axis = 2)
             output = output_fw + output_bw
+            if (n==self.num_layers-2) and (FLAGS.num_attn_head > 0):
+                output = multihead_attention_no_var(output, output, num_units = self.dim_hidden , num_heads = FLAGS.num_attn_head, is_training=is_train, scope = "ctgr_self_att", weights= weights, prefix = "ctgr_self_att_")
         last_fw, last_bw = last_state
         ctgr_hidden = tf.concat([last_fw.h, last_bw.h], axis=-1)
         #ctgr_hidden = tf.concat([output[:,0,:],output[:,-1,:]],axis=-1)
 
         #print("TEXT_HIDDEN.SHAPE:"+str(text_hidden.shape))
         #print("CTGR_HIDDEN.SHAPE:"+str(ctgr_hidden.shape))
+
         cat_hidden = tf.nn.relu(tf.concat([text_hidden, ctgr_hidden], axis = -1))
         if is_train:
             cat_hidden = tf.nn.dropout(cat_hidden, keep_prob)

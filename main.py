@@ -95,6 +95,8 @@ flags.DEFINE_bool('q2c', True, '')
 flags.DEFINE_bool('query_dots', True, '')
 flags.DEFINE_float('dropout_rate', 0.1, 'dropout rate')
 
+flags.DEFINE_integer('num_attn_head', 0, 'num of head in multi-head attention, set 0 to disable')
+
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100
     SAVE_INTERVAL = 1000
