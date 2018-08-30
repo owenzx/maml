@@ -109,13 +109,12 @@ class DataGenerator(object):
             self.num_classes = config.get('num_classes', FLAGS.num_classes)
             self.dim_output = self.num_classes
             if FLAGS.datasource == 'sst':
-                data_train, data_dev, data_test = read_sst(datafolder='./data/stanfordSentimentTreebank'
+                data_train, data_dev, data_test = read_sst(datafolder='./data/SST-2')
             elif FLAGS.datasource == 'imdb':
                 pass
             train_dataset = data_train
             if FLAGS.test_set:
                 val_dataset = data_test
-                val_dataset = data_train
             else:
                 val_dataset = data_dev
             self.train_dataset = train_dataset
@@ -142,6 +141,70 @@ class DataGenerator(object):
             else:
                 result.append('UNK')
         return ' '.join(result)
+
+    def make_data_tensor_1sen_senti(self, word2idx):
+        train_next_items, self.train_init_ops = self._make_data_tensor_1sen_senti(word2idx, train=True)
+        test_next_items, self.test_init_ops = self._make_data_tensor_1sen_senti(word2idx, train=False)
+
+        return train_next_items, test_next_items
+        
+
+
+    def _make_data_tensor_1sen_senti(self, word2idx, train=True):
+        if train:
+            dataset = self.train_dataset
+        else:
+            dataset = self.val_dataset
+        
+        dataset_size = len(dataset['seq1'])
+        all_text = []
+        all_label = []
+        all_text_len = []
+
+        shuffled_index = np.random.permutation(dataset_size)
+
+        #dataset['labels'] = [x.lower() for x in dataset['labels']]
+
+        print(dataset_size)
+        
+        for i in range(dataset_size):
+            j = shuffled_index[i]
+            text = np.array([word2idx.get(x,word2idx['UNK']) for x in nltk.word_tokenize(dataset['seq1'][j].lower())])
+            label = np.array(dataset['labels'].index(dataset['stance'][j]))
+            text_len = np.array(len(text))
+
+            all_text.append(text)
+            all_label.append(label)
+            all_text_len.append(text_len)
+
+        assert(self.num_samples_per_class==1)
+        padded_all_text = get_pad_batch(all_text, self.num_samples_per_class)
+        all_label = get_batch_labels(all_label, self.num_samples_per_class)
+        all_text_len = get_batch_labels(all_text_len, self.num_samples_per_class)
+        meta_all_text = get_pad_metabatch(padded_all_text, self.batch_size)
+        meta_all_label = get_metabatch_labels(all_label, self.batch_size)    
+        meta_all_text_len = get_metabatch_labels(all_text_len, self.batch_size)    
+
+        print(len(meta_all_text))
+        dataset_text = tf.data.Dataset.from_generator(lambda: meta_all_text, tf.int64, tf.TensorShape([self.batch_size, self.num_samples_per_class, None]))
+        dataset_label = tf.data.Dataset.from_generator(lambda: meta_all_label, tf.int64, tf.TensorShape([self.batch_size, self.num_samples_per_class]))
+        dataset_text_len = tf.data.Dataset.from_generator(lambda: meta_all_text_len, tf.int64,tf.TensorShape([self.batch_size,self.num_samples_per_class]))
+
+        dataset_all = tf.data.Dataset.zip((dataset_text, dataset_text_len, dataset_label))
+
+        dataset_input = dataset_all.map(lambda a,b,c:(a,b))
+        dataset_label = dataset_all.map(lambda a,b,c:c)
+
+        iterator_input = tf.data.Iterator.from_structure(dataset_input.output_types, dataset_input.output_shapes)
+        iterator_label = tf.data.Iterator.from_structure(dataset_label.output_types, dataset_label.output_shapes)
+
+        next_input = iterator_input.get_next()
+        next_label = iterator_label.get_next()
+
+        init_op_input = iterator_input.make_initializer(dataset_input)
+        init_op_label = iterator_label.make_initializer(dataset_label)
+
+        return (next_input, next_label), (init_op_input, init_op_label)
 
     def make_data_tensor_transfer_multi(self, word2idx, train=True):
         # Notice the shape of different input datasets must be the same

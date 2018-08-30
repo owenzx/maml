@@ -105,6 +105,35 @@ def parse_absa(file_path, debug=False, num_instances=20):
     #assert data["labels"] == ABSA_LABELS
     return data
 
+def read_sst(datafolder='./data/', debug=True, num_instances=999999999):
+    import pandas
+    train_path = os.path.join(datafolder, 'train.tsv')
+    dev_path = os.path.join(datafolder, 'dev.tsv')
+    test_path = os.path.join(datafolder, 'test.tsv')
+    data_train = parse_sst(train_path, debug, num_instances)
+    data_dev = parse_sst(dev_path, debug, num_instances)
+    data_test = parse_sst(test_path, debug, num_instances)
+    return data_train, data_dev, data_test
+
+def parse_sst(file_path, debug=False, num_instance=99999999999):
+    import pandas
+    df = pandas.read_csv(file_path, sep='\t')
+    df.columns = ['seq1', 'stance']
+    data = df.to_dict(orient='list')
+    data['labels'] = sorted(list(set(data['stance'])))
+    return data
+
+#def parse_sst(file_path, debug=False, num_instance = 9999999999999999):
+#    data = {"seq1":[], "stance":[]}
+#    with open(file_path) as f:
+#        for i, line in enumerate(f):
+#            seq1, stance = line.split("\t")
+#            data["seq1"].append(seq1)
+#            data["stance"].append(stance)
+#    data['labels'] = sorted(list(set(data['stance'])))
+#    return data
+    
+
 def read_target_dependent(datafolder="./data/", debug=True, num_instances=999999999):
     #target_dependent_path = os.path.join(datafolder, 'target-dependent')
     target_dependent_path = datafolder
@@ -269,7 +298,7 @@ def readTopic3Way(datafolder="./data/", debug=True, num_instances=99999999):
 
 
 def main():
-    train_set, dev_set, test_set = read_snli(datafolder='./data/SNLI/original')
+    train_set, dev_set, test_set = read_sst(datafolder='./data/SST-2')
     print(train_set.keys())
     #print(train_set['seq2'])
     print(train_set['labels'])

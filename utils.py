@@ -55,6 +55,27 @@ def mse(pred, label):
     label = tf.reshape(label, [-1])
     return tf.reduce_mean(tf.square(pred-label))
 
+def seq_xent(pred, label, mask):
+    """pred:  [batch_size, seq_len, vocab],
+       label: [batch_size, seq_len],
+       mask:  [batch_size, seq_len]"""
+    mask = tf.cast(mask, pred.dtype)
+    return tf.contrib.seq2seq.sequence_loss(logits=pred, targets=label, weights=mask, average_across_timesteps=True, average_across_batch=True)
+
+def get_bi_label(label):
+    print(type(label))
+    batch_size = tf.shape(label)[0]
+    one_step_zero = tf.zeros((batch_size, 1), label.dtype)
+    fw_label = tf.concat([label[:,1:], one_step_zero],axis=-1)
+    bw_label = tf.concat([one_step_zero, label[:,:-1]], axis=-1)
+    return fw_label, bw_label
+
+def bi_seq_xent(pred, label, mask):
+    pred_fw, pred_bw = pred
+    mask_fw, mask_bw = mask
+    label_fw, label_bw = get_bi_label(label)
+    return seq_xent(pred_fw, label_fw, mask_fw) + seq_xent(pred_bw, label_bw, mask_bw)
+
 def xent(pred, label):
     print("PRED.SHAPEL:"+str(pred.shape))
     print("LABEL.SHAPE:"+str(label.shape))
