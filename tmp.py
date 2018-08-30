@@ -49,6 +49,8 @@ def test4():
     #value = dataset.make_one_shot_iterator().get_next()
     itr = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
     value = itr.get_next()
+    value2 = value
+    value3 = value
     sess = tf.InteractiveSession()
     #sess.run(value) # first element
     #sess.run(value) # second element
@@ -58,10 +60,41 @@ def test4():
 
         while True:
             try:
-                sess.run(value)
-                print("running")
+                print(sess.run([value, value2, value3]))
             except tf.errors.OutOfRangeError:
                 print("out of range!")
                 break
+def test5():
+    text_len = tf.convert_to_tensor([3,4,5,6,7])
+    e = tf.sequence_mask(text_len,10)
 
-test4()
+    f = tf.sequence_mask(text_len-1, 10)
+    z1 = tf.ones(text_len.shape)
+    z = tf.logical_not(tf.sequence_mask(z1,10))
+    g = tf.logical_and(e,z)
+    #g = e * 10
+    #h = g * 10
+    sess = tf.InteractiveSession()
+    tf.global_variables_initializer().run()
+    print(sess.run(e))
+    print(sess.run(f))
+    print(sess.run(g))
+
+def test6():
+    text_label = tf.convert_to_tensor([3,4,5,6,7])
+    text_label = tf.reshape(text_label, [1,-1])
+    text_labels = tf.concat([text_label, text_label, text_label], axis=0)
+    one_step_zero = tf.zeros((3,1),tf.int32)
+    fw_labels = text_labels[:,1:]
+    fw_labels = tf.concat([fw_labels, one_step_zero], axis=-1)
+    bw_labels = text_labels[:,:-1]
+    bw_labels = tf.concat([one_step_zero, bw_labels], axis=-1)
+    sess = tf.InteractiveSession()
+    tf.global_variables_initializer().run()
+    print(sess.run(text_labels))
+    print(sess.run(fw_labels))
+    print(sess.run(bw_labels))
+
+    
+
+test6()

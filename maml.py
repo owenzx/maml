@@ -91,7 +91,7 @@ class MAML:
         with tf.variable_scope('model', reuse=None) as training_scope:
             if 'weights' in dir(self):
                 training_scope.reuse_variables()
-                weights, weightsa, weightsb = self.weights
+                weights, weightsa, weightsb = self.weights, self.weightsa, self.weightsb
             else:
                 # Define the weights
                 self.weights, self.weightsa, self.weightsb = weights, weightsa, weightsb = self.construct_weights()
@@ -118,15 +118,15 @@ class MAML:
                 gradients = dict(zip(weightsa.keys(), grads))
 
                 def get_weight(key, weighta, weightsb):
-                    if key not in weightsb.keys():
-                        return weightsa[key]
+                    if key not in weightsa.keys():
+                        return weightsb[key]
                     if key!='emb':
                         return  weightsb[key] - self.update_lr*gradients[key] 
                     else:
                         return weightsb[key] - self.update_lr*tf.convert_to_tensor(gradients[key])
 
                 #fast_weights = dict(zip(weightsb.keys(), 
-                #                    [weights[key] if key not in weightsb.keys() 
+                #                    [weightsb[key] if key not in weightsa.keys() 
                 #                    else (
                 #                        weights[key] - self.update_lr*gradients[key] if key!='emb' 
                 #                        else weights[key] - self.update_lr*tf.convert_to_tensor(gradients[key])
