@@ -63,7 +63,7 @@ def seq_xent(pred, label, mask):
     return tf.contrib.seq2seq.sequence_loss(logits=pred, targets=label, weights=mask, average_across_timesteps=True, average_across_batch=True)
 
 def get_bi_label(label):
-    print(type(label))
+    #print(type(label))
     batch_size = tf.shape(label)[0]
     one_step_zero = tf.zeros((batch_size, 1), label.dtype)
     fw_label = tf.concat([label[:,1:], one_step_zero],axis=-1)
