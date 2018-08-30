@@ -57,7 +57,7 @@ class MAML:
                 self.forward = self.forward_1input_rnn_usl
                 self.construct_weights = self.construct_1input_rnn_weights_usl
                 self.aux_loss_func = bi_seq_xent
-                self.real_loss_funct = xent_onehot
+                self.real_loss_func = xent_onehot
             else:
                 if FLAGS.model == "rnn":
                     self.forward = self.forward_rnn
@@ -106,10 +106,10 @@ class MAML:
 
             def task_metalearn(inp, reuse=True, is_train=True):
                 inputa, inputb, labela, labelb = inp
-                task_outputsb, task_lossesb = [], []
+                task_outputbs, task_lossesb = [], []
                 if self.classification:
                     task_accuraciesb = []
-                task_outputa, _ , mask= self.forward(inputa, weights, reuse=reuse, is_train=is_train)
+                task_outputa, mask= self.forward(inputa, weights, reuse=reuse, is_train=is_train, task="aux")
                 task_lossa = self.aux_loss_func(task_outputa, labela, mask)
                 grads = tf.gradients(task_lossa, list(weightsa.values()))
 
@@ -133,8 +133,8 @@ class MAML:
                 #                    )
                 #                     for key in weightsb.keys()]))
                 fast_weights = dict(zip(weightsb.keys(), [get_weight(key, weightsa, weightsb) for key in weightsb.keys()]))
-                _, output, _ = self.forward(inputb, fast_weights, reuse=True, is_train = is_train)
-                task_outputsb.append(output)
+                output = self.forward(inputb, fast_weights, reuse=True, is_train = is_train, task="main")
+                task_outputbs.append(output)
                 task_lossesb.append(self.real_loss_func(output, labelb))
 
                 #Now first suppose only one aux task
@@ -142,8 +142,9 @@ class MAML:
 
                 if self.classification:
                     for j in range(num_updates):
-                        if FLAGS.datasesource in NLP_DATASETS:
+                        if FLAGS.datasource in NLP_DATASETS:
                             task_accuraciesb.append(tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputbs[j]), 1), labelb))
+                    task_output.extend([task_accuraciesb])
 
                 return task_output
 
@@ -153,9 +154,9 @@ class MAML:
                 # to initialize the batch norm vars, might want to combine this, and not run idx 0 twice.
                 unused = task_metalearn((self.inputa[0], self.inputb[0], self.labela[0], self.labelb[0]), False)
 
-            out_dtype = [tf.float32, [tf.float32]*num_updates, tf.float32, [tf.float32]*num_updates]
+            out_dtype = [(tf.float32, tf.float32), [tf.float32]*num_updates, tf.float32, [tf.float32]*num_updates]
             if self.classification:
-                out_dtype.extend([tf.float32, [tf.float32]*num_updates])
+                out_dtype.extend([[tf.float32]*num_updates])
             result = tf.map_fn(task_metalearn, elems=(self.inputa, self.inputb, self.labela, self.labelb), dtype=out_dtype, parallel_iterations=FLAGS.meta_batch_size)
             if self.classification:
                 outputas, outputbs, lossesa, lossesb, accuraciesb = result
@@ -759,7 +760,7 @@ class MAML:
 
         return weights, weightsa, weightsb
 
-    def forward_1input_rnn_usl(self, inp, weights, reuse=False, scope='', is_train=True):
+    def forward_1input_rnn_usl(self, inp, weights, reuse=False, scope='', is_train=True, task="main"):
         cells = dict()
         keep_prob = 1-FLAGS.dropout_rate
 
@@ -801,33 +802,35 @@ class MAML:
         last_fw, last_bw = last_state
         text_hidden = tf.concat([last_fw.h, last_bw.h], axis = -1)
         #text_hidden = tf.concat([output[:,0,:],output[:,-1,:]],axis=-1)
-        output_fw = tf.reshape(output_fw, [-1, self.dim_hidden])
-        output_bw = tf.reshape(output_bw, [-1, self.dim_hidden])
-        
-        if not FLAGS.bind_embedding_softmax:
-            logits_fw = tf.matmul(output_fw, weights['w_sm_forw']) + weights['b_sm_forw']
-            logits_bw = tf.matmul(output_bw, weights['w_sm_back']) + weights['b_sm_back']
-        else:
-            w_sm = tf.transpose(weights['emb'])
-            logits_fw = tf.matmul(output_fw, w_sm)
-            logits_bw = tf.matmul(output_bw, w_sm)
 
-        logits_fw = tf.reshape(logits_fw, [batch_size, max_text_len, self.dim_hidden])
-        logits_bw = tf.reshape(logits_bw, [batch_size, max_text_len, self.dim_hidden])
+        if task=="aux":
+            output_fw = tf.reshape(output_fw, [-1, self.dim_hidden])
+            output_bw = tf.reshape(output_bw, [-1, self.dim_hidden])
+            
+            if not FLAGS.bind_embedding_softmax:
+                logits_fw = tf.matmul(output_fw, weights['w_sm_forw']) + weights['b_sm_forw']
+                logits_bw = tf.matmul(output_bw, weights['w_sm_back']) + weights['b_sm_back']
+            else:
+                w_sm = tf.transpose(weights['emb'])
+                logits_fw = tf.matmul(output_fw, w_sm)
+                logits_bw = tf.matmul(output_bw, w_sm)
+            logits_fw = tf.reshape(logits_fw, [batch_size, max_text_len, self.vocab_size])
+            logits_bw = tf.reshape(logits_bw, [batch_size, max_text_len, self.vocab_size])
 
-        max_text_len = tf.shape(text_tok)[1]
-        text_mask = tf.sequence_mask(text_len, max_text_len)
-        mask_logits_fw = tf.sequence_mask(text_len-1, max_text_len)
-        mask_logits_bw = tf.sequence_mask(text_len, max_text_len)
+            max_text_len = tf.shape(text_tok)[1]
+            text_mask = tf.sequence_mask(text_len, max_text_len)
+            mask_logits_fw = tf.sequence_mask(text_len-1, max_text_len)
+            mask_logits_bw = tf.sequence_mask(text_len, max_text_len)
+            return (logits_fw, logits_bw), (mask_logits_fw, mask_logits_bw)
+        elif task == "main":
 
 
-
-        cat_hidden_2 = tf.nn.relu(tf.matmul(text_hidden, weights['w1']) + weights['b1'])
-        if is_train:
-            cat_hidden_2 = tf.nn.dropout(cat_hidden_2, keep_prob)
-        final_output = tf.matmul(cat_hidden_2, weights['w2']) + weights['b2']
-        #final_output = tf.Print(final_output, [final_output])
-        return (logits_fw, logits_bw), final_output, (mask_logits_fw, mask_logits_bw)
+            cat_hidden_2 = tf.nn.relu(tf.matmul(text_hidden, weights['w1']) + weights['b1'])
+            if is_train:
+                cat_hidden_2 = tf.nn.dropout(cat_hidden_2, keep_prob)
+            final_output = tf.matmul(cat_hidden_2, weights['w2']) + weights['b2']
+            #final_output = tf.Print(final_output, [final_output])
+            return final_output
 
 
 

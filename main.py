@@ -416,8 +416,8 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
     if FLAGS.log:
         train_writer = tf.summary.FileWriter(FLAGS.logdir + '/' + exp_string, sess.graph)
     print('Done initializing, starting training.')
-    auxlosses, reallosses, realacces = [], []
-    test_auxlosses, test_reallosses, test_realacces = [], []
+    auxlosses, reallosses, realacces = [], [], []
+    test_auxlosses, test_reallosses, test_realacces = [], [], []
 
     num_classes = data_generator.num_classes # for classification, 1 otherwise
 
@@ -654,7 +654,8 @@ def main():
             else:
                 test_num_updates = 10
         else:
-            test_num_updates = 10
+            test_num_updates = FLAGS.num_updates
+    
     
     if FLAGS.zeroshot == True:
         test_num_updates = 0
