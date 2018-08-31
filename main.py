@@ -489,7 +489,7 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
                     break
                 
             #print('Test_prelosses: ' + str(test_prelosses) + ', Test_postlosses: ' + str(test_postlosses))
-            print('Validation results: ' + str(np.mean(test_prelosses)) + ', ' + str(np.mean(test_postlosses)))
+            print('Validation results: ' + str(np.mean(test_auxlosses)) + ', ' + str(np.mean(test_reallosses)))
             test_prelosses, test_postlosses = [], []
 
     saver.save(sess, FLAGS.logdir + '/' + exp_string +  '/model' + str(itr))
