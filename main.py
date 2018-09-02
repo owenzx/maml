@@ -104,6 +104,7 @@ flags.DEFINE_bool('bind_embedding_softmax', False, "whether use the same paramet
 
 flags.DEFINE_bool('approx_2nd_grad', False, "Set to true to use approximated second-order gradient when stop_grad is set to True")
 flags.DEFINE_bool('clip_grad', False, 'Whether to clip the grad of not, default range is -10 to 10')
+flags.DEFINE_integer('hidden_dim', 300, "default dimension for most of the hidden layers")
 
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100

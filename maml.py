@@ -67,7 +67,7 @@ class MAML:
                     self.construct_weights = self.construct_better_rnn_weights
                 self.loss_func = xent_onehot
             self.vocab_size = 40000 + 2 #default choice
-            self.dim_hidden =200
+            self.dim_hidden = FLAGS.hidden_dim
             self.dim_output = 3
             self.classification = True
             self.dim_emb = 300
@@ -178,11 +178,11 @@ class MAML:
                 if FLAGS.approx_2nd_grad:
                     self.gvs = gvs = get_approx_2nd_grad(optimizer, self.total_loss1, self.total_losses2[FLAGS.num_updates-1], self.weights, self.update_lr, self.aux_loss_func, self.forward, self.inputa, True, True, self.labela)
                     if FLAGS.clip_grad == True:
-                        gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs]
+                        gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs if grad is not None]
                 else:
                     self.gvs = gvs = optimizer.compute_gradients(self.total_losses2[FLAGS.num_updates-1])
                     if FLAGS.clip_grad == True:
-                        gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs]
+                        gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs if grad is not None]
                 self.metatrain_op = optimizer.apply_gradients(gvs)
         else:
             self.metaval_total_loss1 = total_loss1 = tf.reduce_sum(lossesa) / tf.to_float(FLAGS.meta_batch_size)

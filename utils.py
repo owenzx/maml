@@ -246,3 +246,4 @@ def get_approx_2nd_grad(optimizer, loss1, loss2, theta, eta, loss1_func, forw_mo
     final_approx =  minus_grads(grad_loss2_theta2 , minus_grads(grad_loss_theta_hat, grad_loss1_theta, coeff=(eta / nu)))
     return [(final_approx[v], theta[v]) for v in final_approx.keys() if final_approx[v] is not None]
     #return final_approx
+
