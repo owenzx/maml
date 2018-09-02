@@ -460,13 +460,13 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
         if epoch % PRINT_INTERVAL == 0:
             print_str = 'Epoch ' + str(epoch - FLAGS.pretrain_epochs)
             if model.classification:
-                print_str += 'aux loss: ' + str(np.mean(auxlosses)) + ',real loss: ' + str(np.mean(reallosses)) + ', real acc:' + str(np.mean(realacces))
+                print_str += 'aux loss: ' + str(np.mean(auxlosses)) + ', real loss: ' + str(np.mean(reallosses)) + ', real acc: ' + str(np.mean(realacces))
             else:
-                print_str += 'aux loss: ' + str(np.mean(auxlosses)) + ',real loss: ' + str(np.mean(reallosses))
+                print_str += 'aux loss: ' + str(np.mean(auxlosses)) + ', real loss: ' + str(np.mean(reallosses))
             print(print_str)
             sys.stdout.flush()
 
-            prelosses, postlosses = [], []
+            auxlosses, reallosses, realacces = [], [], []
 
         if epoch % SAVE_INTERVAL == 0:
             saver.save(sess, FLAGS.logdir + '/' + exp_string + '/model' + str(epoch))
@@ -491,15 +491,18 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
                     break
                 
             #print('Test_prelosses: ' + str(test_prelosses) + ', Test_postlosses: ' + str(test_postlosses))
-            print('Validation results: ' + str(np.mean(test_auxlosses)) + ', ' + str(np.mean(test_reallosses)))
-            test_prelosses, test_postlosses = [], []
+            if model.classification:
+                print('Validation results: aux loss: ' + str(np.mean(test_auxlosses)) + ', real loss: ' + str(np.mean(test_reallosses)) + ', real acc: ' + str(np.mean(test_realacces)))
+            else:
+                print('Validation results: aux loss: ' + str(np.mean(test_auxlosses)) + ', real loss: ' + str(np.mean(test_reallosses)))
+            sys.stdout.flush()
+            test_auxlosses, test_reallosses, test_realacces = [], [], []
 
     saver.save(sess, FLAGS.logdir + '/' + exp_string +  '/model' + str(itr))
 
 def test_usl(model, saver, sess, exp_string, data_generator):
     pass
 
-           
 
 
 # calculated for omniglot
