@@ -95,6 +95,19 @@ def test6():
     print(sess.run(fw_labels))
     print(sess.run(bw_labels))
 
+def test7():
+    c = tf.ones((10))
+    e, f = c, c+10
+    print(type(e))
+    g = e * 10
+    print(type(g))
+    h = g + e
+    loss = tf.reduce_sum(h)
+    grads = tf.gradients(loss, [c,e,f,g,h])
+    sess = tf.InteractiveSession()
+    tf.global_variables_initializer().run()
+    print(sess.run(grads))
+
     
 
-test6()
+test7()

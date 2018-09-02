@@ -102,3 +102,4 @@ tmp*
 *.out
 tmp.py
 *.sh
+results/
