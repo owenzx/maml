@@ -177,11 +177,11 @@ class MAML:
                 optimizer = tf.train.AdamOptimizer(self.meta_lr)
                 if FLAGS.approx_2nd_grad:
                     self.gvs = gvs = get_approx_2nd_grad(optimizer, self.total_loss1, self.total_losses2[FLAGS.num_updates-1], self.weights, self.update_lr, self.aux_loss_func, self.forward, self.inputa, True, True, self.labela)
-                    if FLAGS.datasource == 'miniimagenet':
+                    if FLAGS.clip_grad == True:
                         gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs]
                 else:
                     self.gvs = gvs = optimizer.compute_gradients(self.total_losses2[FLAGS.num_updates-1])
-                    if FLAGS.datasource == 'miniimagenet':
+                    if FLAGS.clip_grad == True:
                         gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs]
                 self.metatrain_op = optimizer.apply_gradients(gvs)
         else:
