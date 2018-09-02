@@ -102,7 +102,7 @@ class DataGenerator(object):
             self.train_dataset = train_dataset
             self.val_dataset = val_dataset
             
-            self.dim_output = 3
+            self.dim_output = self.num_classes
             self.dim_input = -1 # do not use this value
         elif FLAGS.datasource in NLP_1SEN_SENTIMENT_DATASETS:
             self.make_data_tensor = self.make_data_tensor_1sen_senti

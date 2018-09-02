@@ -105,6 +105,26 @@ def parse_absa(file_path, debug=False, num_instances=20):
     #assert data["labels"] == ABSA_LABELS
     return data
 
+def read_sst_5(datafolder = './data/', debug=True, num_instance=999999999):
+    train_path = os.path.join(datafolder, 'stsa.fine.train')
+    dev_path = os.path.join(datafolder, 'stsa.fine.dev')
+    test_path = os.path.join(datafolder, 'stsa.fine.test')
+    data_train = parse_sst_5(train_path, debug, num_instance)
+    data_dev = parse_sst_5(train_path, debug, num_instance)
+    data_test = parse_sst_5(train_path, debug, num_instance)
+    return data_train, data_dev, data_test
+
+def parse_sst_5(file_path, debug=False, num_instance=999999999):
+    data = {"seq1": [], "stance": []}
+    with open(file_path, encoding='utf-8') as f:
+        for i, line in enumerate(f):
+            data["stance"].append(line[0])
+            data["seq1"].append(line[2:-1])
+    data['labels'] = sorted(list(set(data['stance'])))
+    return data
+
+    
+
 def read_sst(datafolder='./data/', debug=True, num_instances=999999999):
     import pandas
     train_path = os.path.join(datafolder, 'train.tsv')
@@ -298,9 +318,10 @@ def readTopic3Way(datafolder="./data/", debug=True, num_instances=99999999):
 
 
 def main():
-    train_set, dev_set, test_set = read_sst(datafolder='./data/SST-2')
+    train_set, dev_set, test_set = read_sst_5(datafolder='./data/SST-5')
     print(train_set.keys())
     #print(train_set['seq2'])
+    print(train_set['seq1'])
     print(train_set['labels'])
 
 if __name__ == "__main__":
