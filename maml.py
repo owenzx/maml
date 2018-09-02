@@ -10,7 +10,7 @@ except KeyError as e:
           file=sys.stderr)
 
 from tensorflow.python.platform import flags
-from utils import mse, xent, conv_block, normalize, read_pretrained_embeddings, rnncell, build_cells, xent_onehot, bi_seq_xent, seq_xent
+from utils import mse, xent, conv_block, normalize, read_pretrained_embeddings, rnncell, build_cells, xent_onehot, bi_seq_xent, seq_xent, get_approx_2nd_grad
 from customized_cells import Customized_BasicLSTMCell
 from bidaf import BiAttention_no_var
 from multihead_attention import multihead_attention_no_var
@@ -175,9 +175,14 @@ class MAML:
             #TODO: create new pretrain_op
             if FLAGS.metatrain_iterations > 0:
                 optimizer = tf.train.AdamOptimizer(self.meta_lr)
-                self.gvs = gvs = optimizer.compute_gradients(self.total_losses2[FLAGS.num_updates-1])
-                if FLAGS.datasource == 'miniimagenet':
-                    gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs]
+                if FLAGS.approx_2nd_grad:
+                    self.gvs = gvs = get_approx_2nd_grad(optimizer, self.total_loss1, self.total_losses2[FLAGS.num_updates-1], self.weights, self.update_lr, self.aux_loss_func, self.forward, self.inputa, True, True, self.labela)
+                    if FLAGS.datasource == 'miniimagenet':
+                        gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs]
+                else:
+                    self.gvs = gvs = optimizer.compute_gradients(self.total_losses2[FLAGS.num_updates-1])
+                    if FLAGS.datasource == 'miniimagenet':
+                        gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs]
                 self.metatrain_op = optimizer.apply_gradients(gvs)
         else:
             self.metaval_total_loss1 = total_loss1 = tf.reduce_sum(lossesa) / tf.to_float(FLAGS.meta_batch_size)
@@ -194,7 +199,6 @@ class MAML:
                 tf.summary.scalar(prefix+'Real task accuracy, step ' + str(j+1), total_accuracies2[j])
 
 
-           
 
 
 

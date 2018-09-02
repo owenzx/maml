@@ -102,6 +102,8 @@ flags.DEFINE_string('task', 'single_dataset', 'determine what task is running')
 
 flags.DEFINE_bool('bind_embedding_softmax', False, "whether use the same parameter for embedding and the softmax layer")
 
+flags.DEFINE_bool('approx_2nd_grad', False, "Set to true to use approximated second-order gradient when stop_grad is set to True")
+
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100
     SAVE_INTERVAL = 1000

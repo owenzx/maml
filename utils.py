@@ -161,3 +161,88 @@ def get_metabatch_labels(a, batch_size):
         batch = np.stack(a[i*batch_size:(i+1)*batch_size])
         result.append(batch)
     return result
+
+def add_grads(grada, gradb, coeff=1.0):
+    vars_a = grada.keys()
+    vars_b = gradb.keys()
+    vars_all = list(set(vars_a)|set(vars_b))
+
+    def get_sum_grad(v, coeff):
+        if grada[v] is None and gradb[v] is None:
+            return None
+        if grada[v] is None:
+            return coeff * gradb[v]
+        if gradb[v] is None:
+            return coeff * grada[v]
+        return coeff * (grada[v] + gradb[v])
+
+    return dict(zip(vars_all, [get_sum_grad(v, coeff) for v in vars_all]))
+
+def minus_grads(grada, gradb, coeff=1.0):
+    vars_a = grada.keys()
+    vars_b = gradb.keys()
+    vars_all = list(set(vars_a)|set(vars_b))
+
+    def get_diff_grad(v, coeff):
+        if grada[v] is None and gradb[v] is None:
+            return None
+        if grada[v] is None:
+            return coeff * (-gradb[v])
+        if gradb[v] is None:
+            return coeff * grada[v]
+        return coeff * (grada[v] - gradb[v])
+
+    return dict(zip(vars_all, [get_diff_grad(v, coeff) for v in vars_all]))
+
+
+def convert_to_stop_grad_dict(grads, theta):
+    stop_grads = [tf.stop_gradient(g) if g is not None else None for g in grads]
+    grads_dict = dict(zip(theta.keys(), stop_grads))
+    return grads_dict
+    
+
+
+def get_approx_2nd_grad(optimizer, loss1, loss2, theta, eta, loss1_func, forw_model, model_inp, model_reuse, model_is_train, labela):
+    #grad_loss1_theta = optimizer.compute_gradients(loss1)
+    grad_loss1_theta = tf.gradients(loss1, list(theta.values()))
+    #grad_loss1_theta = [tf.stop_gradient(grad) if grad is not None else None for grad in grad_loss1_theta]
+    #grad_loss1_theta = dict(zip(theta.keys(), grad_loss1_theta))
+    grad_loss1_theta = convert_to_stop_grad_dict(grad_loss1_theta, theta)
+    #grad_loss2_theta2 = optimizer.compute_gradients(loss2)
+    grad_loss2_theta2 = tf.gradients(loss2, list(theta.values()))
+    #grad_loss2_theta2 = [tf.stop_gradient(grad) if grad is not None else None for grad in grad_loss2_theta2]
+    #grad_loss2_theta2 = dict(zip(theta.keys(), grad_loss2_theta2))
+    grad_loss2_theta2 = convert_to_stop_grad_dict(grad_loss2_theta2, theta)
+    
+
+    nu = 0.0001 # nu should be a very small value
+
+    def get_weight(key, theta, nu, grad_loss1_theta):
+        if grad_loss1_theta[key] is None:
+            return theta[key]
+        if key!='emb':
+            return  theta[key] + nu*grad_loss1_theta[key] 
+        else:
+            return theta[key] + nu * tf.convert_to_tensor(grad_loss1_theta[key])
+
+    theta_hat = dict(zip(theta.keys(),[get_weight(key, theta, nu, grad_loss1_theta) for key in theta.keys()]))
+    #theta_hat = theta + nu * grad_loss1_theta
+
+    def get_loss_hat(inp, reuse=True, is_train=True):
+        model_inp, labela = inp
+        output_hat, mask = forw_model(model_inp, theta_hat, reuse = reuse, is_train=is_train, task="aux")
+        loss_hat = loss1_func(output_hat, labela, mask)
+        return loss_hat
+
+
+
+    #output_hat, mask = forw_model(model_inp, theta_hat, reuse = model_reuse, is_train=model_is_train, task="aux")
+    #loss_hat = loss1_func(output_hat, labela, mask)
+    loss_hat = tf.map_fn(get_loss_hat, elems=(model_inp, labela), dtype=tf.float32, parallel_iterations=FLAGS.meta_batch_size)
+    grad_loss_theta_hat = optimizer.compute_gradients(loss_hat)
+    grad_loss_theta_hat = tf.gradients(loss_hat, list(theta.values()))
+    grad_loss_theta_hat = convert_to_stop_grad_dict(grad_loss_theta_hat, theta)
+
+    final_approx =  minus_grads(grad_loss2_theta2 , minus_grads(grad_loss_theta_hat, grad_loss1_theta, coeff=(eta / nu)))
+    return [(final_approx[v], theta[v]) for v in final_approx.keys()]
+    #return final_approx
