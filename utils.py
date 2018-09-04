@@ -225,12 +225,14 @@ def get_approx_2nd_grad(optimizer, loss1, loss2, theta, eta, loss1_func, forw_mo
         else:
             return theta[key] + nu * tf.convert_to_tensor(grad_loss1_theta[key])
 
-    theta_hat = dict(zip(theta.keys(),[get_weight(key, theta, nu, grad_loss1_theta) for key in theta.keys()]))
+    theta_hat = dict(zip(theta.keys(),[get_weight(key, theta, nu, grad_loss2_theta2) for key in theta.keys()]))
     #theta_hat = theta + nu * grad_loss1_theta
 
     def get_loss_hat(inp, reuse=True, is_train=True):
         model_inp, labela = inp
         output_hat, mask = forw_model(model_inp, theta_hat, reuse = reuse, is_train=is_train, task="aux")
+        #JUST FOR TEST USE
+        #output_hat, mask = forw_model(model_inp, theta, reuse = reuse, is_train=is_train, task="aux")
         loss_hat = loss1_func(output_hat, labela, mask)
         return loss_hat
 

@@ -1,11 +1,11 @@
 import tensorflow as tf
 import numpy as np
 def test1():
-    dataset0 = tf.data.Dataset.range(10)
-    dataset = dataset0.map(lambda x: tf.fill([2,tf.cast(x, tf.int32)], x))
+    dataset = tf.data.Dataset.range(10)
+    #dataset = dataset0.map(lambda x: tf.fill([2,tf.cast(x, tf.int32)], x))
     #dataset2 = dataset0.map(lambda x: tf.fill([2,tf.cast(x+1, tf.int32)], x))
     #dataset2 = dataset2.padded_batch(4, padded_shapes=[None])
-    dataset = dataset.padded_batch(4, padded_shapes=[None])
+    #dataset = dataset.padded_batch(4, padded_shapes=[None])
     #dataset = tf.data.Dataset.zip((dataset, dataset2))
     dataset = dataset.shuffle(100)
 
@@ -17,7 +17,8 @@ def test1():
     #print(dataset.output_shapes)
     print(next_element)
     #print(a.shape)
-    print(sess.run(next_element))  # ==> [[0, 0, 0], [1, 0, 0], [2, 2, 0], [3, 3, 3]]
+    while True:
+        print(sess.run([next_element, next_element]))  # ==> [[0, 0, 0], [1, 0, 0], [2, 2, 0], [3, 3, 3]]
     #print(sess.run(next_element))  # ==> [[4, 4, 4, 4, 0, 0, 0],
 
 def test2():
@@ -110,4 +111,4 @@ def test7():
 
     
 
-test7()
+test1()

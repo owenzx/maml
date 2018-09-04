@@ -106,6 +106,8 @@ flags.DEFINE_bool('approx_2nd_grad', False, "Set to true to use approximated sec
 flags.DEFINE_bool('clip_grad', False, 'Whether to clip the grad of not, default range is -10 to 10')
 flags.DEFINE_integer('hidden_dim', 300, "default dimension for most of the hidden layers")
 
+flags.DEFINE_bool('TF_USE_CUDNN', True, "set to True to use CUDNN")
+
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100
     SAVE_INTERVAL = 1000
@@ -648,6 +650,11 @@ def main():
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
     else:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu_id)
+
+    if FLAGS.TF_USE_CUDNN == True:
+        pass
+    else:
+        os.environ["TF_USE_CUDNN"] = False
     
     if FLAGS.datasource == 'sinusoid':
         if FLAGS.train:
