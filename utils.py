@@ -215,7 +215,7 @@ def get_approx_2nd_grad(optimizer, loss1, loss2, theta, eta, loss1_func, forw_mo
     grad_loss2_theta2 = convert_to_stop_grad_dict(grad_loss2_theta2, theta)
     
 
-    nu = 0.0001 # nu should be a very small value
+    nu = 0.0000001 # nu should be a very small value
 
     def get_weight(key, theta, nu, grad_loss1_theta):
         if grad_loss1_theta[key] is None:
@@ -239,6 +239,7 @@ def get_approx_2nd_grad(optimizer, loss1, loss2, theta, eta, loss1_func, forw_mo
     #output_hat, mask = forw_model(model_inp, theta_hat, reuse = model_reuse, is_train=model_is_train, task="aux")
     #loss_hat = loss1_func(output_hat, labela, mask)
     loss_hat = tf.map_fn(get_loss_hat, elems=(model_inp, labela), dtype=tf.float32, parallel_iterations=FLAGS.meta_batch_size)
+    loss_hat = tf.reduce_sum(loss_hat) / tf.to_float(FLAGS.meta_batch_size)
     grad_loss_theta_hat = optimizer.compute_gradients(loss_hat)
     grad_loss_theta_hat = tf.gradients(loss_hat, list(theta.values()))
     grad_loss_theta_hat = convert_to_stop_grad_dict(grad_loss_theta_hat, theta)
