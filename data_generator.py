@@ -5,7 +5,7 @@ import random
 import tensorflow as tf
 
 from tensorflow.python.platform import flags
-from utils import get_images, get_pad_batch, get_pad_metabatch, get_batch_labels, get_metabatch_labels
+from utils import get_images, get_pad_batch, get_pad_metabatch, get_batch_labels, get_metabatch_labels, get_static_pad_batch
 from nlp_data_reader import read_absa_restaurants, read_absa_laptops, read_target_dependent, readTopic3Way, read_snli, read_sst
 import nltk
 from constants import *
@@ -178,7 +178,11 @@ class DataGenerator(object):
             all_text_len.append(text_len)
 
         assert(self.num_samples_per_class==1)
-        padded_all_text = get_pad_batch(all_text, self.num_samples_per_class)
+        if not FLAGS.use_static_rnn:
+            padded_all_text = get_pad_batch(all_text, self.num_samples_per_class)
+        else:
+            padded_all_text = get_static_pad_batch(all_text, self.num_samples_per_class)
+
         all_label = get_batch_labels(all_label, self.num_samples_per_class)
         all_text_len = get_batch_labels(all_text_len, self.num_samples_per_class)
         meta_all_text = get_pad_metabatch(padded_all_text, self.batch_size)

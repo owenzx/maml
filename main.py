@@ -107,6 +107,7 @@ flags.DEFINE_bool('clip_grad', False, 'Whether to clip the grad of not, default 
 flags.DEFINE_integer('hidden_dim', 300, "default dimension for most of the hidden layers")
 
 flags.DEFINE_bool('TF_USE_CUDNN', True, "set to True to use CUDNN")
+flags.DEFINE_bool('use_static_rnn', False, 'set to True to use static rnn instead of dynamic rnn')
 
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100
@@ -445,6 +446,7 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
                 else:
                     input_tensors = [model.metatrain_op]
                 itr += 1
+                print(itr)
 
                 if epoch < FLAGS.pretrain_epochs:
                     pass

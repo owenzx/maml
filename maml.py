@@ -727,7 +727,7 @@ class MAML:
         self.cells['text_cell_forw'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
         self.cells['text_cell_back'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
 
-        num_rnn_hiddens = [self.dim_emb] + [self.dim_hidden for _ in range(self.num_layers-1)]
+        num_rnn_hiddens = [self.dim_emb] + [2 * self.dim_hidden for _ in range(self.num_layers-1)]
         #All the rnn cells must be built so that their weights can be accessed
         build_cells(self.cells['text_cell_forw'], num_rnn_hiddens)
         build_cells(self.cells['text_cell_back'], num_rnn_hiddens)
@@ -789,6 +789,12 @@ class MAML:
         max_text_len = tf.shape(text_vec)[1]
 
         output = text_vec
+        if FLAGS.use_static_rnn:
+            output = tf.transpose(output, [1,0,2])
+            output = tf.reshape(output, [-1, self.dim_emb])
+            #seq_len = output.shape[0]
+            seq_len = 53
+            output = tf.split(output, seq_len)
         for n in range(self.num_layers):
             cell_fw = cells['text_cell_forw'][n]
             cell_bw = cells['text_cell_back'][n]
@@ -797,15 +803,22 @@ class MAML:
             state_bw = cell_bw.zero_state(self.batch_size, tf.float32)
             #print("OUTPUT.SHAPE:")
             #print(output.shape)
-            (output_fw, output_bw), last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, output, sequence_length=text_len, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_text_'+str(n), dtype = tf.float32)
+            if not FLAGS.use_static_rnn:
+                (output_fw, output_bw), last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, output, sequence_length=text_len, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_text_'+str(n), dtype = tf.float32)
+                #output = output_fw + output_bw
+                output = tf.concat([output_fw, output_bw], axis=-1)
+            else:
+                output, last_fw, last_bw = tf.nn.static_bidirectional_rnn(cell_fw, cell_bw, output, sequence_length=text_len, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_text_'+str(n), dtype = tf.float32)
 
-            #output = tf.concat([output_fw, output_bw], axis = 2)
-            output = output_fw + output_bw
-            if (n==self.num_layers-2) and (FLAGS.num_attn_head > 0):
-                output = multihead_attention_no_var(output, output, num_units = self.dim_hidden , num_heads = FLAGS.num_attn_head, is_training=is_train, scope = "text_self_att", weights= weights, prefix = "text_self_att_")
-        last_fw, last_bw = last_state
+            #if (n==self.num_layers-2) and (FLAGS.num_attn_head > 0):
+            #    output = multihead_attention_no_var(output, output, num_units = self.dim_hidden , num_heads = FLAGS.num_attn_head, is_training=is_train, scope = "text_self_att", weights= weights, prefix = "text_self_att_")
+        if not FLAGS.use_static_rnn:
+            last_fw, last_bw = last_state
         text_hidden = tf.concat([last_fw.h, last_bw.h], axis = -1)
         #text_hidden = tf.concat([output[:,0,:],output[:,-1,:]],axis=-1)
+        if FLAGS.use_static_rnn:
+            output = tf.convert_to_tensor(output)
+            output_fw, output_bw = tf.split(output, 2, axis=-1)
 
         if task=="aux":
             output_fw = tf.reshape(output_fw, [-1, self.dim_hidden])

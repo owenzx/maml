@@ -121,6 +121,18 @@ def build_cells(cells, dim_input):
         fake_inp = tf.ones((2,dim_input[i]))
         c.build(fake_inp.shape)
 
+def get_static_pad_batch(a, batch_size):
+    padded = []
+    pad_len = max([len(x) for x in a])
+    pad_len = 53
+    print("PAD_LEN: "+str(pad_len))
+    for i in range(len(a)//batch_size):
+        batch = np.zeros
+        batch = np.zeros((batch_size,pad_len), dtype=np.int32)
+        for j in range(batch_size):
+            batch[j,:len(a[i*batch_size+j])] = a[i*batch_size + j]
+        padded.append(batch)
+    return padded
 
 def get_pad_batch(a, batch_size):
     padded = []
