@@ -115,7 +115,7 @@ class MAML:
                     task_accuraciesb = []
                 task_outputa, mask= self.forward(inputa, weights, reuse=reuse, is_train=is_train, task="aux", max_len = max_len)
                 task_lossa = self.aux_loss_func(task_outputa, labela, mask)
-                grads = tf.gradients(task_lossa, list(weightsa.values()))
+                grads = tf.gradients(task_lossa, list(weightsa.values()), aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
 
                 if FLAGS.stop_grad:
                     grads = [tf.stop_gradient(grad) for grad in grads]
@@ -184,7 +184,7 @@ class MAML:
                     if FLAGS.clip_grad == True:
                         gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs if grad is not None]
                 else:
-                    self.gvs = gvs = optimizer.compute_gradients(self.total_losses2[FLAGS.num_updates-1])
+                    self.gvs = gvs = optimizer.compute_gradients(self.total_losses2[FLAGS.num_updates-1], aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
                     if FLAGS.clip_grad == True:
                         gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs if grad is not None]
                 self.metatrain_op = optimizer.apply_gradients(gvs)
@@ -248,7 +248,7 @@ class MAML:
                 task_outputa = self.forward(inputa, weights, reuse=reuse, is_train=is_train)  # only reuse on the first iter
                 task_lossa = self.loss_func(task_outputa, labela)
 
-                grads = tf.gradients(task_lossa, list(weights.values()))
+                grads = tf.gradients(task_lossa, list(weights.values()), aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
                 if FLAGS.stop_grad:
                     #TODO: allow some weights to not have grads
                     grads = [tf.stop_gradient(grad) for grad in grads]
@@ -264,7 +264,7 @@ class MAML:
 
                 for j in range(num_updates - 1):
                     loss = self.loss_func(self.forward(inputa, fast_weights, reuse=True, is_train=is_train), labela)
-                    grads = tf.gradients(loss, list(fast_weights.values()))
+                    grads = tf.gradients(loss, list(fast_weights.values()), aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
                     if FLAGS.stop_grad:
                         grads = [tf.stop_gradient(grad) for grad in grads]
                     gradients = dict(zip(fast_weights.keys(), grads))

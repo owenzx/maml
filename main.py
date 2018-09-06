@@ -794,9 +794,11 @@ def main():
 
     saver = loader = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES), max_to_keep=10)
 
-    #config = tf.ConfigProto()
-    #sess = tf.Session(config = tf.ConfigProto(log_device_placement=True))
-    sess = tf.InteractiveSession()
+    sess_config = tf.ConfigProto()
+    sess_config.gpu_options.allow_growth = True
+
+    sess = tf.Session(config=sess_config)
+    #sess = tf.InteractiveSession()
 
     if FLAGS.train == False:
         # change to original meta batch size when loading model.
@@ -829,8 +831,8 @@ def main():
     resume_itr = 0
     model_file = None
 
-    tf.global_variables_initializer().run()
-    tf.train.start_queue_runners()
+    sess.run(tf.global_variables_initializer())
+    tf.train.start_queue_runners(sess=sess)
 
     if FLAGS.resume or not FLAGS.train:
         model_file = tf.train.latest_checkpoint(FLAGS.logdir + '/' + exp_string)
