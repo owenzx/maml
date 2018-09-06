@@ -132,7 +132,9 @@ def read_sst(datafolder='./data/', debug=True, num_instances=999999999):
     test_path = os.path.join(datafolder, 'test.tsv')
     data_train = parse_sst(train_path, debug, num_instances)
     data_dev = parse_sst(dev_path, debug, num_instances)
-    data_test = parse_sst(test_path, debug, num_instances)
+    #Test data has no label
+    #data_test = parse_sst(test_path, debug, num_instances)
+    data_test = {"seq1":[], "stance":[]}
     return data_train, data_dev, data_test
 
 def parse_sst(file_path, debug=False, num_instance=99999999999):
@@ -318,11 +320,10 @@ def readTopic3Way(datafolder="./data/", debug=True, num_instances=99999999):
 
 
 def main():
-    train_set, dev_set, test_set = read_sst_5(datafolder='./data/SST-5')
-    print(train_set.keys())
-    #print(train_set['seq2'])
-    print(train_set['seq1'])
-    print(train_set['labels'])
+    train_set, dev_set, test_set = read_sst(datafolder='./data/SST-2')
+    l = [len(x.split(' ')) for x in train_set['seq1']]
+    print(max(l))
+    print(sum(l)/len(l))
 
 if __name__ == "__main__":
     main()

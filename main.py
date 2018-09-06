@@ -446,7 +446,7 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
                 else:
                     input_tensors = [model.metatrain_op]
                 itr += 1
-                print(itr)
+                #print(itr)
 
                 if epoch < FLAGS.pretrain_epochs:
                     pass
@@ -774,14 +774,22 @@ def main():
         input_tensors = None
 
         
-
-    model = MAML(dim_input, dim_output, test_num_updates=test_num_updates)
+    if FLAGS.use_static_rnn:
+        max_len = data_generator.max_len
+        train_max_len = data_generator.train_max_len
+        if FLAGS.test_set == True:
+            test_max_len = data_generator.test_max_len
+        else:
+            test_max_len = data_generator.dev_max_len
+    else:
+        max_len = train_max_len = test_max_len =  None
+    model = MAML(dim_input, dim_output, test_num_updates=test_num_updates, max_len = max_len)
     if FLAGS.pretrain_embedding!='none':
         model.set_pretrain_embedding(weights_emb, word2idx)
     if FLAGS.train or not tf_data_load:
-        model.construct_model(input_tensors=input_tensors, prefix='metatrain_')
+        model.construct_model(input_tensors=input_tensors, prefix='metatrain_', max_len=train_max_len)
     if tf_data_load:
-        model.construct_model(input_tensors=metaval_input_tensors, prefix='metaval_')
+        model.construct_model(input_tensors=metaval_input_tensors, prefix='metaval_', max_len=test_max_len)
     model.summ_op = tf.summary.merge_all()
 
     saver = loader = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES), max_to_keep=10)

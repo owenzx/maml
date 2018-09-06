@@ -60,7 +60,7 @@ def seq_xent(pred, label, mask):
        label: [batch_size, seq_len],
        mask:  [batch_size, seq_len]"""
     mask = tf.cast(mask, pred.dtype)
-    return tf.contrib.seq2seq.sequence_loss(logits=pred, targets=label, weights=mask, average_across_timesteps=True, average_across_batch=True)
+    return tf.contrib.seq2seq.sequence_loss(logits=pred, targets=label, weights=mask, average_across_timesteps=True, average_across_batch=True, softmax_loss_function=xent_onehot)
 
 def get_bi_label(label):
     #print(type(label))
@@ -82,10 +82,16 @@ def xent(pred, label):
     # Note - with tf version <=0.12, this loss has incorrect 2nd derivatives
     return tf.nn.softmax_cross_entropy_with_logits(logits=pred, labels=label) / FLAGS.update_batch_size
 
-def xent_onehot(pred, label):
-    label = tf.one_hot(label, 3)
+#def xent_onehot(logits, labels):
+#    labels = tf.one_hot(labels, )
+#    return tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels) / FLAGS.update_batch_size
+
+
+def xent_onehot(logits, labels):
+    class_num = tf.shape(logits)[-1]
+    labels = tf.one_hot(labels, class_num)
     #label = tf.Print(label, [label])
-    return tf.nn.softmax_cross_entropy_with_logits(logits=pred, labels=label) / FLAGS.update_batch_size
+    return tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels) / FLAGS.update_batch_size
 
 def read_pretrained_embeddings():
     PAD_TOKEN = 0
@@ -121,10 +127,9 @@ def build_cells(cells, dim_input):
         fake_inp = tf.ones((2,dim_input[i]))
         c.build(fake_inp.shape)
 
-def get_static_pad_batch(a, batch_size):
+def get_static_pad_batch(a, batch_size, max_len):
     padded = []
-    pad_len = max([len(x) for x in a])
-    pad_len = 53
+    pad_len = max_len
     print("PAD_LEN: "+str(pad_len))
     for i in range(len(a)//batch_size):
         batch = np.zeros
@@ -261,4 +266,18 @@ def get_approx_2nd_grad(optimizer, loss1, loss2, theta, eta, loss1_func, forw_mo
     final_approx =  minus_grads(grad_loss2_theta2 , minus_grads(grad_loss_theta_hat, grad_loss1_theta, coeff=(eta / nu)))
     return [(final_approx[v], theta[v]) for v in final_approx.keys() if final_approx[v] is not None]
     #return final_approx
+
+
+def convert_list_to_tensor(l):
+    """Used to convert the format for static rnn to the format for dynamic rnn"""    
+    t = tf.convert_to_tensor(l)
+    t = tf.transpose(t, [1,0,2])
+    return t
+
+def convert_tensor_to_list(t, max_len, dim):
+    """Used to convert the format for dynamic rnn to the format for static rnn"""
+    t = tf.transpose(t, [1,0,2])
+    t = tf.reshape(t, [-1, dim])
+    l = tf.split(t, max_len)
+    return l
 

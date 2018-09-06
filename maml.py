@@ -10,16 +10,18 @@ except KeyError as e:
           file=sys.stderr)
 
 from tensorflow.python.platform import flags
-from utils import mse, xent, conv_block, normalize, read_pretrained_embeddings, rnncell, build_cells, xent_onehot, bi_seq_xent, seq_xent, get_approx_2nd_grad
+from tensorflow.python.ops.rnn import _reverse_seq #at least this can be imported for tensorflow 1.10
+from utils import mse, xent, conv_block, normalize, read_pretrained_embeddings, rnncell, build_cells, xent_onehot, bi_seq_xent, seq_xent, get_approx_2nd_grad, convert_list_to_tensor, convert_tensor_to_list
 from customized_cells import Customized_BasicLSTMCell
 from bidaf import BiAttention_no_var
 from multihead_attention import multihead_attention_no_var
 from constants import *
+from my_static_brnn import my_static_bidirectional_rnn
 
 FLAGS = flags.FLAGS
 
 class MAML:
-    def __init__(self, dim_input=1, dim_output=1, test_num_updates=5):
+    def __init__(self, dim_input=1, dim_output=1, test_num_updates=5, max_len=None):
         """ must call construct_model() after initializing MAML! """
         self.dim_input = dim_input
         self.dim_output = dim_output
@@ -53,6 +55,8 @@ class MAML:
                 self.channels = 1
             self.img_size = int(np.sqrt(self.dim_input/self.channels))
         elif FLAGS.datasource in NLP_DATASETS:
+            if FLAGS.use_static_rnn:
+                self.max_len = max_len
             if FLAGS.task == 'usl_adapt':
                 self.forward = self.forward_1input_rnn_usl
                 self.construct_weights = self.construct_1input_rnn_weights_usl
@@ -82,7 +86,7 @@ class MAML:
         self.vocab_size = len(word2idx)
 
     
-    def construct_model_usl_adapt(self, input_tensors=None, prefix='metatrain_'):
+    def construct_model_usl_adapt(self, input_tensors=None, prefix='metatrain_', max_len=None):
         self.inputa = input_tensors['inputa']
         self.inputb = input_tensors['inputb']
         self.labela, _ = input_tensors['labela']
@@ -109,7 +113,7 @@ class MAML:
                 task_outputbs, task_lossesb = [], []
                 if self.classification:
                     task_accuraciesb = []
-                task_outputa, mask= self.forward(inputa, weights, reuse=reuse, is_train=is_train, task="aux")
+                task_outputa, mask= self.forward(inputa, weights, reuse=reuse, is_train=is_train, task="aux", max_len = max_len)
                 task_lossa = self.aux_loss_func(task_outputa, labela, mask)
                 grads = tf.gradients(task_lossa, list(weightsa.values()))
 
@@ -133,7 +137,7 @@ class MAML:
                 #                    )
                 #                     for key in weightsb.keys()]))
                 fast_weights = dict(zip(weightsb.keys(), [get_weight(key, weightsa, weightsb) for key in weightsb.keys()]))
-                output = self.forward(inputb, fast_weights, reuse=True, is_train = is_train, task="main")
+                output = self.forward(inputb, fast_weights, reuse=True, is_train = is_train, task="main", max_len=max_len)
                 task_outputbs.append(output)
                 task_lossesb.append(self.real_loss_func(output, labelb))
 
@@ -764,7 +768,7 @@ class MAML:
 
         return weights, weightsa, weightsb
 
-    def forward_1input_rnn_usl(self, inp, weights, reuse=False, scope='', is_train=True, task="main"):
+    def forward_1input_rnn_usl(self, inp, weights, reuse=False, scope='', is_train=True, task="main", max_len=None):
         cells = dict()
         keep_prob = 1-FLAGS.dropout_rate
 
@@ -790,11 +794,10 @@ class MAML:
 
         output = text_vec
         if FLAGS.use_static_rnn:
-            output = tf.transpose(output, [1,0,2])
-            output = tf.reshape(output, [-1, self.dim_emb])
-            #seq_len = output.shape[0]
-            seq_len = 53
-            output = tf.split(output, seq_len)
+            #output = tf.transpose(output, [1,0,2])
+            #output = tf.reshape(output, [-1, self.dim_emb])
+            #output = tf.split(output, self.max_len)
+            output = convert_tensor_to_list(output, max_len, self.dim_emb)
         for n in range(self.num_layers):
             cell_fw = cells['text_cell_forw'][n]
             cell_bw = cells['text_cell_back'][n]
@@ -808,17 +811,36 @@ class MAML:
                 #output = output_fw + output_bw
                 output = tf.concat([output_fw, output_bw], axis=-1)
             else:
-                output, last_fw, last_bw = tf.nn.static_bidirectional_rnn(cell_fw, cell_bw, output, sequence_length=text_len, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_text_'+str(n), dtype = tf.float32)
-
-            #if (n==self.num_layers-2) and (FLAGS.num_attn_head > 0):
-            #    output = multihead_attention_no_var(output, output, num_units = self.dim_hidden , num_heads = FLAGS.num_attn_head, is_training=is_train, scope = "text_self_att", weights= weights, prefix = "text_self_att_")
+                #The sequence_length parameter here is not used in order to avoid using tf.while 
+                #output, last_fw, last_bw = tf.nn.static_bidirectional_rnn(cell_fw, cell_bw, output, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_text_'+str(n), dtype = tf.float32)
+                output, output_fw_l, output_bw_l = my_static_bidirectional_rnn(cell_fw, cell_bw, output, sequence_length=text_len, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_text_'+str(n), dtype = tf.float32)
+            if (n==self.num_layers-2) and (FLAGS.num_attn_head > 0):
+                if FLAGS.use_static_rnn:
+                    output = convert_list_to_tensor(output)
+                output = multihead_attention_no_var(output, output, num_units = self.dim_hidden , num_heads = FLAGS.num_attn_head, is_training=is_train, scope = "text_self_att", weights= weights, prefix = "text_self_att_")
+                if FLAGS.use_static_rnn:
+                    output = convert_tensor_to_list(output)
         if not FLAGS.use_static_rnn:
             last_fw, last_bw = last_state
-        text_hidden = tf.concat([last_fw.h, last_bw.h], axis = -1)
+            text_hidden = tf.concat([last_fw.h, last_bw.h], axis = -1)
+        else:
+            output_fw = convert_list_to_tensor(output_fw_l)
+            batch_idx = tf.reshape(tf.range(FLAGS.update_batch_size, dtype=tf.int64), [-1,1])
+            text_len_idx = tf.reshape(text_len, [-1,1])
+            fw_idx = tf.concat([batch_idx, text_len_idx-1], axis=-1)
+            last_fw = tf.gather_nd(output_fw, fw_idx)
+            
+            output_bw = convert_list_to_tensor(output_bw_l)
+            zero_idx = tf.zeros((FLAGS.update_batch_size,1),dtype=tf.int64)
+            bw_idx = tf.concat([batch_idx,zero_idx], axis=-1)
+            last_bw = tf.gather_nd(output_bw, bw_idx)
+            text_hidden = tf.concat([last_fw, last_bw], axis=-1)
+
+            #last_fw = tf.gather()
         #text_hidden = tf.concat([output[:,0,:],output[:,-1,:]],axis=-1)
-        if FLAGS.use_static_rnn:
-            output = tf.convert_to_tensor(output)
-            output_fw, output_bw = tf.split(output, 2, axis=-1)
+        #if FLAGS.use_static_rnn:
+            #output = tf.convert_to_tensor(output)
+            #output_fw, output_bw = tf.split(output, 2, axis=-1)
 
         if task=="aux":
             output_fw = tf.reshape(output_fw, [-1, self.dim_hidden])

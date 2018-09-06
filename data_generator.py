@@ -110,6 +110,8 @@ class DataGenerator(object):
             self.dim_output = self.num_classes
             if FLAGS.datasource == 'sst':
                 data_train, data_dev, data_test = read_sst(datafolder='./data/SST-2')
+            if FLAGS.use_static_rnn:
+                self.max_len, self.train_max_len, self.dev_max_len, self.test_max_len = self.get_max_len(data_train["seq1"], data_dev["seq1"], data_test["seq1"])
             elif FLAGS.datasource == 'imdb':
                 pass
             train_dataset = data_train
@@ -131,6 +133,15 @@ class DataGenerator(object):
 
         else:
             raise ValueError('Unrecognized data source')
+        
+    def get_max_len(self, dtrain, ddev, dtest):
+        #WARNING: for debug
+        #return 3
+        maxtrain = max([len(nltk.word_tokenize(x.lower())) for x in dtrain]+[0])
+        maxdev = max([len(nltk.word_tokenize(x.lower())) for x in ddev]+[0])
+        maxtest = max([len(nltk.word_tokenize(x.lower())) for x in dtest]+[0])
+        return max(maxtrain, maxdev, maxtest), maxtrain, maxdev, maxtest
+
 
     def preprocessed_text(self, text, word2idx):
         words = nltk.word_tokenize(text.lower())
@@ -153,8 +164,13 @@ class DataGenerator(object):
     def _make_data_tensor_1sen_senti(self, word2idx, train=True):
         if train:
             dataset = self.train_dataset
+            max_len = self.train_max_len
         else:
             dataset = self.val_dataset
+            if FLAGS.test_set == False:
+                max_len = self.dev_max_len
+            else:
+                max_len = self.test_max_len
         
         dataset_size = len(dataset['seq1'])
         all_text = []
@@ -170,6 +186,9 @@ class DataGenerator(object):
         for i in range(dataset_size):
             j = shuffled_index[i]
             text = np.array([word2idx.get(x,word2idx['UNK']) for x in nltk.word_tokenize(dataset['seq1'][j].lower())])
+            #WARNING: for debug
+            #if len(text)>3:
+            #    text = text[:3]
             label = np.array(dataset['labels'].index(dataset['stance'][j]))
             text_len = np.array(len(text))
 
@@ -181,7 +200,7 @@ class DataGenerator(object):
         if not FLAGS.use_static_rnn:
             padded_all_text = get_pad_batch(all_text, self.num_samples_per_class)
         else:
-            padded_all_text = get_static_pad_batch(all_text, self.num_samples_per_class)
+            padded_all_text = get_static_pad_batch(all_text, self.num_samples_per_class, max_len)
 
         all_label = get_batch_labels(all_label, self.num_samples_per_class)
         all_text_len = get_batch_labels(all_text_len, self.num_samples_per_class)
