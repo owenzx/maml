@@ -136,7 +136,7 @@ class DataGenerator(object):
         
     def get_max_len(self, dtrain, ddev, dtest):
         #WARNING: for debug
-        #return 3
+        #return 3,1000,1000,1000
         maxtrain = max([len(nltk.word_tokenize(x.lower())) for x in dtrain]+[0])
         maxdev = max([len(nltk.word_tokenize(x.lower())) for x in ddev]+[0])
         maxtest = max([len(nltk.word_tokenize(x.lower())) for x in dtest]+[0])
@@ -153,24 +153,38 @@ class DataGenerator(object):
                 result.append('UNK')
         return ' '.join(result)
 
-    def make_data_tensor_1sen_senti(self, word2idx):
-        train_next_items, self.train_init_ops = self._make_data_tensor_1sen_senti(word2idx, train=True)
-        test_next_items, self.test_init_ops = self._make_data_tensor_1sen_senti(word2idx, train=False)
-
-        return train_next_items, test_next_items
-        
-
-
-    def _make_data_tensor_1sen_senti(self, word2idx, train=True):
-        if train:
-            dataset = self.train_dataset
-            max_len = self.train_max_len
+    def make_data_tensor_1sen_senti(self, word2idx, train=True):
+        if train == True:
+            dataset_train = self.train_dataset
         else:
-            dataset = self.val_dataset
-            if FLAGS.test_set == False:
-                max_len = self.dev_max_len
-            else:
-                max_len = self.test_max_len
+            dataset_train = None
+        dataset_test = self.val_dataset
+        tfdatasets_train = self.create_nlp_1sen_dataset(dataset_train, word2idx)
+        tfdatasets_test = self.create_nlp_1sen_dataset(dataset_test, word2idx)
+            
+        self.handle_input = tf.placeholder(tf.string, shape=[])
+        self.handle_label = tf.placeholder(tf.string, shape=[])
+        next_items, iterators = self.get_itr_and_next_from_1sen_dataset(tfdatasets_train)
+        self.dataset_itrs = [self.get_initializable_iter_from_datasets(d) for d in [tfdatasets_train, tfdatasets_test]]
+        assert(len(self.dataset_itrs)==2)
+        self.train_init_ops = self.get_init_ops_from_iters(self.dataset_itrs[0])
+        self.test_init_ops = self.get_init_ops_from_iters(self.dataset_itrs[1])
+        return next_items 
+        
+    def get_itr_and_next_from_1sen_dataset(self, datasets):
+        dataset_input,  dataset_label = datasets
+
+        iterator_input = tf.data.Iterator.from_string_handle(self.handle_input, dataset_input.output_types, dataset_input.output_shapes)
+        iterator_label = tf.data.Iterator.from_string_handle(self.handle_label, dataset_label.output_types, dataset_label.output_shapes)
+        
+        next_input = iterator_input.get_next()
+        next_label = iterator_label.get_next()
+
+        return (next_input, next_label), (iterator_input, iterator_label)
+
+
+    def create_nlp_1sen_dataset(self, dataset, word2idx):
+        max_len = self.max_len
         
         dataset_size = len(dataset['seq1'])
         all_text = []
@@ -213,21 +227,9 @@ class DataGenerator(object):
         dataset_label = tf.data.Dataset.from_generator(lambda: meta_all_label, tf.int64, tf.TensorShape([self.batch_size, self.num_samples_per_class]))
         dataset_text_len = tf.data.Dataset.from_generator(lambda: meta_all_text_len, tf.int64,tf.TensorShape([self.batch_size,self.num_samples_per_class]))
 
-        dataset_all = tf.data.Dataset.zip((dataset_text, dataset_text_len, dataset_label))
+        dataset_input = tf.data.Dataset.zip((dataset_text, dataset_text_len))
 
-        dataset_input = dataset_all.map(lambda a,b,c:(a,b))
-        dataset_label = dataset_all.map(lambda a,b,c:c)
-
-        iterator_input = tf.data.Iterator.from_structure(dataset_input.output_types, dataset_input.output_shapes)
-        iterator_label = tf.data.Iterator.from_structure(dataset_label.output_types, dataset_label.output_shapes)
-
-        next_input = iterator_input.get_next()
-        next_label = iterator_label.get_next()
-
-        init_op_input = iterator_input.make_initializer(dataset_input)
-        init_op_label = iterator_label.make_initializer(dataset_label)
-
-        return (next_input, next_label), (init_op_input, init_op_label)
+        return [dataset_input, dataset_label]
 
     def make_data_tensor_transfer_multi(self, word2idx, train=True):
         # Notice the shape of different input datasets must be the same

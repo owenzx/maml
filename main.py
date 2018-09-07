@@ -412,33 +412,38 @@ def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0
 
     saver.save(sess, FLAGS.logdir + '/' + exp_string +  '/model' + str(itr))
 
-
 def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
-    #TODO: finish the pretrain part
     SUMMARY_INTERVAL = 1
     SAVE_INTERVAL = 1
 
     PRINT_INTERVAL = 1
     TEST_PRINT_INTERVAL = PRINT_INTERVAL
+
     if FLAGS.log:
         train_writer = tf.summary.FileWriter(FLAGS.logdir + '/' + exp_string, sess.graph)
     print('Done initializing, starting training.')
+
     auxlosses, reallosses, realacces = [], [], []
     test_auxlosses, test_reallosses, test_realacces = [], [], []
-
-    num_classes = data_generator.num_classes # for classification, 1 otherwise
 
     train_init_op_input, train_init_op_label = data_generator.train_init_ops
     test_init_op_input, test_init_op_label = data_generator.test_init_ops
 
+    dataset_handles = [[sess.run(itr.string_handle()) for itr in itrs] for itrs in data_generator.dataset_itrs]
+
+    train_handles = dataset_handles[0]
+    test_handles = dataset_handles[1]
+
     itr = 0
 
     for epoch in range(resume_epoch, FLAGS.pretrain_epochs + FLAGS.metatrain_epochs):
-        feed_dict={}
+        feed_dict = {}
+
         sess.run(train_init_op_input)
         sess.run(train_init_op_label)
-
-
+        handles = train_handles
+        feed_dict = {data_generator.handle_input: handles[0],
+                     data_generator.handle_label: handles[1]}
         while True:
             try:
                 if epoch < FLAGS.pretrain_epochs:
@@ -446,7 +451,6 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
                 else:
                     input_tensors = [model.metatrain_op]
                 itr += 1
-                #print(itr)
 
                 if epoch < FLAGS.pretrain_epochs:
                     pass
@@ -454,7 +458,7 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
                     input_tensors.extend([model.total_loss1, model.total_losses2[FLAGS.num_updates-1]])
                     if model.classification:
                         input_tensors.extend([model.total_accuracies2[FLAGS.num_updates-1]])                
-                result = sess.run(input_tensors)
+                result = sess.run(input_tensors, feed_dict=feed_dict)
                 auxlosses.append(result[1])
                 reallosses.append(result[2])
                 if model.classification:
@@ -477,17 +481,21 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
         if epoch % SAVE_INTERVAL == 0:
             saver.save(sess, FLAGS.logdir + '/' + exp_string + '/model' + str(epoch))
 
-        if epoch % TEST_PRINT_INTERVAL == 0:
+        feed_dict = {}
+
+        if epoch % TEST_PRINT_INTERVAL == 0 and FLAGS.datasource !='sinusoid':
             sess.run(test_init_op_input)
             sess.run(test_init_op_label)
+            handles = test_handles
+            feed_dict = {data_generator.handle_input: handles[0],
+                        data_generator.handle_label: handles[1]}
             while True:
                 try:
-                    feed_dict = {}
                     if model.classification:
                         input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1], model.metaval_total_accuracies2[FLAGS.num_updates-1]]
                     else:
                         input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1]]
-                    result = sess.run(input_tensors, feed_dict)
+                    result = sess.run(input_tensors, feed_dict=feed_dict)
                     test_auxlosses.append(result[0])
                     test_reallosses.append(result[1])
                     if model.classification:
@@ -496,7 +504,6 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
                 except tf.errors.OutOfRangeError:
                     break
                 
-            #print('Test_prelosses: ' + str(test_prelosses) + ', Test_postlosses: ' + str(test_postlosses))
             if model.classification:
                 print('Validation results: aux loss: ' + str(np.mean(test_auxlosses)) + ', real loss: ' + str(np.mean(test_reallosses)) + ', real acc: ' + str(np.mean(test_realacces)))
             else:
@@ -758,17 +765,13 @@ def main():
             
             input_tensors = {'inputa':inputa, 'inputb': inputb, 'labela':labela, 'labelb':labelb}
 
-        #random.seed(6)
-        #t_inputa, t_inputb, t_labela, t_labelb = data_generator.make_data_tensor(word2idx, train=False)
-        #metaval_input_tensors = {'inputa':t_inputa, 'inputb': t_inputb, 'labela':t_labela, 'labelb':t_labelb}
         metaval_input_tensors = {'inputa':inputa, 'inputb': inputb, 'labela':labela, 'labelb':labelb}
     elif FLAGS.task == 'usl_adapt':
         tf_data_load = True
         if FLAGS.train:
             random.seed(5)
-            (train_next_text, train_next_label), (test_next_text, test_next_label) = data_generator.make_data_tensor(word2idx)
-            input_tensors = {'inputa':train_next_text, 'inputb':train_next_text, 'labela':train_next_text, 'labelb':train_next_label}
-        metaval_input_tensors = {'inputa':test_next_text, 'inputb':test_next_text, 'labela':test_next_text, 'labelb':test_next_label}
+            (next_text, next_label) = data_generator.make_data_tensor(word2idx)
+            input_tensors = {'inputa':next_text, 'inputb':next_text, 'labela':next_text, 'labelb':next_label}
     else:
         tf_data_load = False
         input_tensors = None
@@ -786,10 +789,13 @@ def main():
     model = MAML(dim_input, dim_output, test_num_updates=test_num_updates, max_len = max_len)
     if FLAGS.pretrain_embedding!='none':
         model.set_pretrain_embedding(weights_emb, word2idx)
-    if FLAGS.train or not tf_data_load:
-        model.construct_model(input_tensors=input_tensors, prefix='metatrain_', max_len=train_max_len)
-    if tf_data_load:
-        model.construct_model(input_tensors=metaval_input_tensors, prefix='metaval_', max_len=test_max_len)
+    if FLAGS.task == "usl_adapt": 
+        model.construct_model(input_tensors=input_tensors, prefix = "train+val", max_len = max_len)
+    else:
+        if FLAGS.train or not tf_data_load:
+            model.construct_model(input_tensors=input_tensors, prefix='metatrain_', max_len=train_max_len)
+        if tf_data_load:
+            model.construct_model(input_tensors=metaval_input_tensors, prefix='metaval_', max_len=test_max_len)
     model.summ_op = tf.summary.merge_all()
 
     saver = loader = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES), max_to_keep=10)
