@@ -110,6 +110,8 @@ class DataGenerator(object):
             self.dim_output = self.num_classes
             if FLAGS.datasource == 'sst':
                 data_train, data_dev, data_test = read_sst(datafolder='./data/SST-2')
+            elif FLAGS.datasource == 'sst-5':
+                data_train, data_dev, data_test = read_sst_5(data_folder='./data/')
             if FLAGS.use_static_rnn:
                 self.max_len, self.train_max_len, self.dev_max_len, self.test_max_len = self.get_max_len(data_train["seq1"], data_dev["seq1"], data_test["seq1"])
             elif FLAGS.datasource == 'imdb':
