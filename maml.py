@@ -70,11 +70,11 @@ class MAML:
                     self.forward = self.forward_better_rnn
                     self.construct_weights = self.construct_better_rnn_weights
                 self.loss_func = xent_onehot
-            self.vocab_size = 40000 + 2 #default choice
+            self.vocab_size = 30000 + 2 #default choice
             self.dim_hidden = FLAGS.hidden_dim
-            self.dim_output = 3
+            self.dim_output = FLAGS.num_classes
             self.classification = True
-            self.dim_emb = 300
+            self.dim_emb = FLAGS.dim_emb
             self.num_layers = FLAGS.num_rnn_layers
             self.batch_size = FLAGS.update_batch_size
             #Other hyper-parameters

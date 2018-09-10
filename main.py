@@ -108,6 +108,8 @@ flags.DEFINE_integer('hidden_dim', 300, "default dimension for most of the hidde
 
 flags.DEFINE_bool('TF_USE_CUDNN', True, "set to True to use CUDNN")
 flags.DEFINE_bool('use_static_rnn', False, 'set to True to use static rnn instead of dynamic rnn')
+flags.DEFINE_bool('debug', False, 'whether run in debug mode')
+flags.DEFINE_integer('dim_emb', 200, 'the dimension of the embedding')
 
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100

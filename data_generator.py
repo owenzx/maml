@@ -136,7 +136,8 @@ class DataGenerator(object):
         
     def get_max_len(self, dtrain, ddev, dtest):
         #WARNING: for debug
-        #return 3,1000,1000,1000
+        if FLAGS.debug == True:
+            return 3,1000,1000,1000
         maxtrain = max([len(nltk.word_tokenize(x.lower())) for x in dtrain]+[0])
         maxdev = max([len(nltk.word_tokenize(x.lower())) for x in ddev]+[0])
         maxtest = max([len(nltk.word_tokenize(x.lower())) for x in dtest]+[0])
@@ -201,8 +202,9 @@ class DataGenerator(object):
             j = shuffled_index[i]
             text = np.array([word2idx.get(x,word2idx['UNK']) for x in nltk.word_tokenize(dataset['seq1'][j].lower())])
             #WARNING: for debug
-            #if len(text)>3:
-            #    text = text[:3]
+            if FLAGS.debug == True:
+                if len(text)>3:
+                    text = text[:3]
             label = np.array(dataset['labels'].index(dataset['stance'][j]))
             text_len = np.array(len(text))
 
