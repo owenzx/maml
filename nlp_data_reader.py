@@ -107,11 +107,12 @@ def parse_absa(file_path, debug=False, num_instances=20):
 
 def read_sst_5(datafolder = './data/', debug=True, num_instance=999999999):
     train_path = os.path.join(datafolder, 'stsa.fine.train')
+    phrase_train_path = os.path.join(datafolder, 'stsa.fine.phrases.train')
     dev_path = os.path.join(datafolder, 'stsa.fine.dev')
     test_path = os.path.join(datafolder, 'stsa.fine.test')
     data_train = parse_sst_5(train_path, debug, num_instance)
-    data_dev = parse_sst_5(train_path, debug, num_instance)
-    data_test = parse_sst_5(train_path, debug, num_instance)
+    data_dev = parse_sst_5(dev_path, debug, num_instance)
+    data_test = parse_sst_5(test_path, debug, num_instance)
     return data_train, data_dev, data_test
 
 def parse_sst_5(file_path, debug=False, num_instance=999999999):

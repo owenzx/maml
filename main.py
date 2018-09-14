@@ -659,6 +659,8 @@ def main():
     print(FLAGS.gpu_id)
     if FLAGS.gpu_id == -1:
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    elif FLAGS.gpu_id == -2:
+        pass
     else:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu_id)
 
