@@ -6,7 +6,7 @@ import tensorflow as tf
 
 from tensorflow.python.platform import flags
 from utils import get_images, get_pad_batch, get_pad_metabatch, get_batch_labels, get_metabatch_labels, get_static_pad_batch
-from nlp_data_reader import read_absa_restaurants, read_absa_laptops, read_target_dependent, readTopic3Way, read_snli, read_sst
+from nlp_data_reader import read_absa_restaurants, read_absa_laptops, read_target_dependent, readTopic3Way, read_snli, read_sst, read_sst_5
 import nltk
 from constants import *
 FLAGS = flags.FLAGS
@@ -111,7 +111,7 @@ class DataGenerator(object):
             if FLAGS.datasource == 'sst':
                 data_train, data_dev, data_test = read_sst(datafolder='./data/SST-2')
             elif FLAGS.datasource == 'sst-5':
-                data_train, data_dev, data_test = read_sst_5(data_folder='./data/')
+                data_train, data_dev, data_test = read_sst_5(datafolder='./data/SST-5')
             if FLAGS.use_static_rnn:
                 self.max_len, self.train_max_len, self.dev_max_len, self.test_max_len = self.get_max_len(data_train["seq1"], data_dev["seq1"], data_test["seq1"])
             elif FLAGS.datasource == 'imdb':
