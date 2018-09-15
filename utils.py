@@ -7,7 +7,7 @@ import numpy as np
 
 from tensorflow.contrib.layers.python import layers as tf_layers
 from tensorflow.python.platform import flags
-from customized_cells import Customized_BasicLSTMCell
+from customized_cells import Customized_BasicLSTMCell, Customized_LayerNormBasicLSTMCell
 
 FLAGS = flags.FLAGS
 
@@ -120,7 +120,10 @@ def read_pretrained_embeddings():
 def rnncell(dim_hidden):
     #keep_prob = 1.0-FLAGS.dropout_rate
     #return tf.nn.rnn_cell.DropoutWrapper(Customized_BasicLSTMCell(num_units = dim_hidden, dtype=tf.float32), input_keep_prob=keep_prob)
-    return Customized_BasicLSTMCell(num_units = dim_hidden, dtype=tf.float32)
+    if FLAGS.norm == 'None':
+        return Customized_BasicLSTMCell(num_units = dim_hidden, dtype=tf.float32)
+    elif FLAGS.norm == 'layer_norm':
+        return Customized_LayerNormBasicLSTMCell(num_units= dim_hidden, dtype=tf.float32)
 
 def build_cells(cells, dim_input):
     for i,c in enumerate(cells):
