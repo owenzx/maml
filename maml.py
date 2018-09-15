@@ -154,9 +154,9 @@ class MAML:
 
 
 
-            if FLAGS.norm != 'None':
-                # to initialize the batch norm vars, might want to combine this, and not run idx 0 twice.
-                unused = task_metalearn((self.inputa[0], self.inputb[0], self.labela[0], self.labelb[0]), False)
+            #if FLAGS.norm != 'None':
+            #    # to initialize the batch norm vars, might want to combine this, and not run idx 0 twice.
+            #    unused = task_metalearn((self.inputa[0], self.inputb[0], self.labela[0], self.labelb[0]), False)
 
             out_dtype = [(tf.float32, tf.float32), [tf.float32]*num_updates, tf.float32, [tf.float32]*num_updates]
             if self.classification:
@@ -861,7 +861,7 @@ class MAML:
         elif task == "main":
 
 
-            cat_hidden_2 = normalize(tf.nn.relu(tf.matmul(text_hidden, weights['w1']) + weights['b1']), reuse=reuse, scope="main_f_1")
+            cat_hidden_2 = normalize(tf.matmul(text_hidden, weights['w1']) + weights['b1'], activation=tf.nn.relu, reuse=reuse, scope="main_f_1")
             if is_train:
                 cat_hidden_2 = tf.nn.dropout(cat_hidden_2, keep_prob)
             final_output = tf.matmul(cat_hidden_2, weights['w2']) + weights['b2']

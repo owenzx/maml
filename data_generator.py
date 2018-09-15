@@ -190,6 +190,8 @@ class DataGenerator(object):
         max_len = self.max_len
         
         dataset_size = len(dataset['seq1'])
+        if FLAGS.debug:
+            dataset_size = min(dataset_size, 20)
         all_text = []
         all_label = []
         all_text_len = []
@@ -199,6 +201,7 @@ class DataGenerator(object):
         #dataset['labels'] = [x.lower() for x in dataset['labels']]
 
         print(dataset_size)
+        
         
         for i in range(dataset_size):
             j = shuffled_index[i]

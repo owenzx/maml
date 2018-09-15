@@ -39,10 +39,11 @@ def conv_block(inp, cweight, bweight, reuse, scope, activation=tf.nn.relu, max_p
     return normed
 
 def normalize(inp, activation, reuse, scope):
+    #BE CAUCIOUS: here reuse is set to tf.AUTO_REUSE instead of reuse
     if FLAGS.norm == 'batch_norm':
-        return tf_layers.batch_norm(inp, activation_fn=activation, reuse=reuse, scope=scope)
+        return tf_layers.batch_norm(inp, activation_fn=activation, reuse=tf.AUTO_REUSE, scope=scope)
     elif FLAGS.norm == 'layer_norm':
-        return tf_layers.layer_norm(inp, activation_fn=activation, reuse=reuse, scope=scope)
+        return tf_layers.layer_norm(inp, activation_fn=activation, reuse=tf.AUTO_REUSE, scope=scope)
     elif FLAGS.norm == 'None':
         if activation is not None:
             return activation(inp)
@@ -123,7 +124,7 @@ def rnncell(dim_hidden):
     if FLAGS.norm == 'None':
         return Customized_BasicLSTMCell(num_units = dim_hidden, dtype=tf.float32)
     elif FLAGS.norm == 'layer_norm':
-        return Customized_LayerNormBasicLSTMCell(num_units= dim_hidden, dtype=tf.float32)
+        return Customized_BasicLSTMCell(num_units= dim_hidden, dtype=tf.float32, layer_norm=True)
 
 def build_cells(cells, dim_input):
     for i,c in enumerate(cells):

@@ -28,6 +28,8 @@ from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.training.checkpointable import base as checkpointable
 from tensorflow.python.util import nest
 from tensorflow.python.util.tf_export import tf_export
+from tensorflow.contrib.layers.python.layers import layers
+
 
 
 _BIAS_VARIABLE_NAME = "bias"
@@ -167,6 +169,11 @@ class Customized_BasicLSTMCell(tf.contrib.rnn.LayerRNNCell):
                activation=None,
                reuse=None,
                name=None,
+               layer_norm=False,
+               norm_gain=1.0,
+               norm_shift=0.0,
+               dropout_keep_prob=1.0,
+               dropout_prob_seed=None,
                dtype=None):
     """Initialize the basic LSTM cell.
 
@@ -203,6 +210,11 @@ class Customized_BasicLSTMCell(tf.contrib.rnn.LayerRNNCell):
     self._forget_bias = forget_bias
     self._state_is_tuple = state_is_tuple
     self._activation = activation or math_ops.tanh
+    self._keep_prob = dropout_keep_prob
+    self._seed = dropout_prob_seed
+    self._layer_norm = layer_norm
+    self._norm_gain = norm_gain
+    self._norm_shift = norm_shift
 
   @property
   def state_size(self):
@@ -230,6 +242,16 @@ class Customized_BasicLSTMCell(tf.contrib.rnn.LayerRNNCell):
 
     self.built = True
 
+  def _norm(self, inp, scope, dtype=dtypes.float32):
+    shape = inp.get_shape()[-1:]
+    gamma_init = init_ops.constant_initializer(self._norm_gain)
+    beta_init = init_ops.constant_initializer(self._norm_shift)
+    with vs.variable_scope(scope, reuse=tf.AUTO_REUSE):
+      # Initialize beta and gamma for use by layer_norm.
+      vs.get_variable("gamma", shape=shape, initializer=gamma_init, dtype=dtype)
+      vs.get_variable("beta", shape=shape, initializer=beta_init, dtype=dtype)
+    normalized = layers.layer_norm(inp, reuse=True, scope=scope)
+    return normalized
 
   def update_weights(self, new_kernel, new_bias):
       if self.built:
@@ -270,6 +292,12 @@ class Customized_BasicLSTMCell(tf.contrib.rnn.LayerRNNCell):
     i, j, f, o = array_ops.split(
         value=gate_inputs, num_or_size_splits=4, axis=one)
 
+    if self._layer_norm:
+      i = self._norm(i, "input", dtype=gate_inputs.dtype)
+      j = self._norm(j, "transform", dtype=gate_inputs.dtype)
+      f = self._norm(f, "forget", dtype=gate_inputs.dtype)
+      o = self._norm(o, "output", dtype=gate_inputs.dtype)
+
     forget_bias_tensor = constant_op.constant(self._forget_bias, dtype=f.dtype)
     # Note that using `add` and `multiply` instead of `+` and `*` gives a
     # performance improvement. So using those at the cost of readability.
@@ -277,6 +305,8 @@ class Customized_BasicLSTMCell(tf.contrib.rnn.LayerRNNCell):
     multiply = math_ops.multiply
     new_c = add(multiply(c, sigmoid(add(f, forget_bias_tensor))),
                 multiply(sigmoid(i), self._activation(j)))
+    if self._layer_norm:
+      new_c = self._norm(new_c, "state", dtype=gate_inputs.dtype)
     new_h = multiply(self._activation(new_c), sigmoid(o))
 
     if self._state_is_tuple:
@@ -310,7 +340,8 @@ class Customized_LayerNormBasicLSTMCell(tf.nn.rnn_cell.RNNCell):
                norm_shift=0.0,
                dropout_keep_prob=1.0,
                dropout_prob_seed=None,
-               reuse=None):
+               reuse=None,
+               dtype=None):
     """Initializes the basic LSTM cell.
     Args:
       num_units: int, The number of units in the LSTM cell.
@@ -330,7 +361,7 @@ class Customized_LayerNormBasicLSTMCell(tf.nn.rnn_cell.RNNCell):
         in an existing scope.  If not `True`, and the existing scope already has
         the given variables, an error is raised.
     """
-    super(Customized_LayerNormBasicLSTMCell, self).__init__(_reuse=reuse)
+    super(Customized_LayerNormBasicLSTMCell, self).__init__(_reuse=reuse, dtype=dtype)
 
     if input_size is not None:
       logging.warn("%s: The input_size parameter is deprecated.", self)

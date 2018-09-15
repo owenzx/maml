@@ -453,6 +453,8 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
                 else:
                     input_tensors = [model.metatrain_op]
                 itr += 1
+                if FLAGS.debug:
+                    print(itr)
 
                 if epoch < FLAGS.pretrain_epochs:
                     pass
@@ -502,7 +504,8 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
                     test_reallosses.append(result[1])
                     if model.classification:
                         test_realacces.append(result[-1])                
-                    #print("running")
+                    if FLAGS.debug:
+                        print("testing")
                 except tf.errors.OutOfRangeError:
                     break
                 
