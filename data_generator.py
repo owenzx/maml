@@ -217,7 +217,7 @@ class DataGenerator(object):
             all_label.append(label)
             all_text_len.append(text_len)
 
-        assert(self.num_samples_per_class==1)
+        #assert(self.num_samples_per_class==1)
         if not FLAGS.use_static_rnn:
             padded_all_text = get_pad_batch(all_text, self.num_samples_per_class)
         else:

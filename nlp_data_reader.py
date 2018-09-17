@@ -321,7 +321,7 @@ def readTopic3Way(datafolder="./data/", debug=True, num_instances=99999999):
 
 
 def main():
-    train_set, dev_set, test_set = read_sst(datafolder='./data/SST-2')
+    train_set, dev_set, test_set = read_sst_5(datafolder='./data/SST-5')
     l = [len(x.split(' ')) for x in train_set['seq1']]
     print(max(l))
     print(sum(l)/len(l))
