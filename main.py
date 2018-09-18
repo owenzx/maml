@@ -415,7 +415,7 @@ def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0
     saver.save(sess, FLAGS.logdir + '/' + exp_string +  '/model' + str(itr))
 
 def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
-    SUMMARY_INTERVAL = 1
+    SUMMARY_INTERVAL = 10
     SAVE_INTERVAL = 1
 
     PRINT_INTERVAL = 1
@@ -462,11 +462,20 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
                     input_tensors.extend([model.total_loss1, model.total_losses2[FLAGS.num_updates-1]])
                     if model.classification:
                         input_tensors.extend([model.total_accuracies2[FLAGS.num_updates-1]])                
-                result = sess.run(input_tensors, feed_dict=feed_dict)
+                if itr % SUMMARY_INTERVAL == 0:
+                    input_tensors.extend([model.summ_op])
+                    run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+                    run_metadata = tf.RunMetadata()
+                    result = sess.run(input_tensors, feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
+                else:
+                    result = sess.run(input_tensors, feed_dict=feed_dict)
+                if itr % SUMMARY_INTERVAL == 0:
+                    train_writer.add_run_metadata(run_metadata, 'step%d' % itr)
+                    train_writer.add_summary(result[-1], itr)
                 auxlosses.append(result[1])
                 reallosses.append(result[2])
                 if model.classification:
-                    realacces.append(result[-1])                
+                    realacces.append(result[3])                
 
             except tf.errors.OutOfRangeError:
                 break
@@ -807,7 +816,7 @@ def main():
 
     saver = loader = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES), max_to_keep=10)
 
-    sess_config = tf.ConfigProto()
+    sess_config = tf.ConfigProto(log_device_placement=True)
     sess_config.gpu_options.allow_growth = True
 
     sess = tf.Session(config=sess_config)
