@@ -91,6 +91,17 @@ class MAML:
         self.inputb = input_tensors['inputb']
         self.labela, _ = input_tensors['labela']
         self.labelb = input_tensors['labelb']
+        self.inputa[0].set_shape([FLAGS.meta_batch_size, FLAGS.update_batch_size, None])
+        self.inputa[1].set_shape([FLAGS.meta_batch_size, FLAGS.update_batch_size])
+        self.labelb.set_shape([FLAGS.meta_batch_size, FLAGS.update_batch_size])
+        print(self.inputa[0].shape)
+        print(self.inputa[1].shape)
+        print(self.labela.shape)
+        print(self.labelb.shape)
+        print(self.inputa[0].dtype)
+        print(self.inputa[1].dtype)
+        print(self.labela.dtype)
+        print(self.labelb.dtype)
 
         with tf.variable_scope('model', reuse=None) as training_scope:
             if 'weights' in dir(self):

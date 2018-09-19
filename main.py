@@ -462,14 +462,14 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
                     input_tensors.extend([model.total_loss1, model.total_losses2[FLAGS.num_updates-1]])
                     if model.classification:
                         input_tensors.extend([model.total_accuracies2[FLAGS.num_updates-1]])                
-                if itr % SUMMARY_INTERVAL == 0:
+                if (itr % SUMMARY_INTERVAL == 0) and FLAGS.log:
                     input_tensors.extend([model.summ_op])
                     run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                     run_metadata = tf.RunMetadata()
                     result = sess.run(input_tensors, feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
                 else:
                     result = sess.run(input_tensors, feed_dict=feed_dict)
-                if itr % SUMMARY_INTERVAL == 0:
+                if (itr % SUMMARY_INTERVAL == 0) and FLAGS.log:
                     train_writer.add_run_metadata(run_metadata, 'step%d' % itr)
                     train_writer.add_summary(result[-1], itr)
                 auxlosses.append(result[1])

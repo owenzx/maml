@@ -177,8 +177,12 @@ class DataGenerator(object):
     def get_itr_and_next_from_1sen_dataset(self, datasets):
         dataset_input,  dataset_label = datasets
 
-        iterator_input = tf.data.Iterator.from_string_handle(self.handle_input, dataset_input.output_types, dataset_input.output_shapes)
-        iterator_label = tf.data.Iterator.from_string_handle(self.handle_label, dataset_label.output_types, dataset_label.output_shapes)
+        #iterator_input = tf.data.Iterator.from_string_handle(self.handle_input, dataset_input.output_types, output_shapes=(tf.TensorShape([self.batch_size, self.num_samples_per_class, None]),tf.TensorShape([self.batch_size, self.num_samples_per_class])))
+        #iterator_label = tf.data.Iterator.from_string_handle(self.handle_label, dataset_label.output_types, output_shapes=tf.TensorShape([self.batch_size, self.num_samples_per_class]))
+        iterator_input = tf.data.Iterator.from_string_handle(self.handle_input, dataset_input.output_types)
+        iterator_label = tf.data.Iterator.from_string_handle(self.handle_label, dataset_label.output_types)
+        #iterator_input = tf.data.Iterator.from_string_handle(self.handle_input, dataset_input.output_types, dataset_input.output_shapes)
+        #iterator_label = tf.data.Iterator.from_string_handle(self.handle_label, dataset_label.output_types, dataset_label.output_shapes)
         
         next_input = iterator_input.get_next()
         next_label = iterator_label.get_next()
@@ -230,9 +234,15 @@ class DataGenerator(object):
         meta_all_text_len = get_metabatch_labels(all_text_len, self.batch_size)    
 
         print(len(meta_all_text))
-        dataset_text = tf.data.Dataset.from_generator(lambda: meta_all_text, tf.int64, tf.TensorShape([self.batch_size, self.num_samples_per_class, None]))
-        dataset_label = tf.data.Dataset.from_generator(lambda: meta_all_label, tf.int64, tf.TensorShape([self.batch_size, self.num_samples_per_class]))
-        dataset_text_len = tf.data.Dataset.from_generator(lambda: meta_all_text_len, tf.int64,tf.TensorShape([self.batch_size,self.num_samples_per_class]))
+        #dataset_text = tf.data.Dataset.from_generator(lambda: meta_all_text, tf.int64, tf.TensorShape([self.batch_size, self.num_samples_per_class, None]))
+        #dataset_label = tf.data.Dataset.from_generator(lambda: meta_all_label, tf.int64, tf.TensorShape([self.batch_size, self.num_samples_per_class]))
+        #dataset_text_len = tf.data.Dataset.from_generator(lambda: meta_all_text_len, tf.int64,tf.TensorShape([self.batch_size,self.num_samples_per_class]))
+        meta_all_text = np.array(meta_all_text, np.int64)
+        meta_all_label = np.array(meta_all_label, np.int64)
+        meta_all_text_len = np.array(meta_all_text_len, np.int64)
+        dataset_text = tf.data.Dataset.from_tensor_slices(meta_all_text)
+        dataset_label = tf.data.Dataset.from_tensor_slices( meta_all_label)
+        dataset_text_len = tf.data.Dataset.from_tensor_slices(meta_all_text_len)
 
         dataset_input = tf.data.Dataset.zip((dataset_text, dataset_text_len))
 
