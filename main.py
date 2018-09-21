@@ -32,6 +32,8 @@ import tensorflow as tf
 from data_generator import DataGenerator
 from maml import MAML
 from tensorflow.python.platform import flags
+import os
+from datetime import datetime
 
 FLAGS = flags.FLAGS
 
@@ -66,6 +68,10 @@ flags.DEFINE_integer('test_iter', -1, 'iteration to load model (-1 for latest mo
 flags.DEFINE_bool('test_set', False, 'Set to true to test on the the test set, False for the validation set.')
 flags.DEFINE_integer('train_update_batch_size', -1, 'number of examples used for gradient update during training (use if you want to test with a different number).')
 flags.DEFINE_float('train_update_lr', -1, 'value of inner gradient step step during training. (use if you want to test with a different value)') # 0.1 for omniglot
+
+flags.DEFINE_integer('gpu_id', -1, 'the id of the gpu to use')
+
+flags.DEFINE_bool('fast', True, "whether to use python for loop instead of tf.map_fn")
 
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100
@@ -113,6 +119,8 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
                 input_tensors.extend([model.total_accuracy1, model.total_accuracies2[FLAGS.num_updates-1]])
 
         result = sess.run(input_tensors, feed_dict)
+
+        print(str(datetime.now())+" itr%d"%itr)
 
         if itr % SUMMARY_INTERVAL == 0:
             prelosses.append(result[-2])
@@ -213,6 +221,14 @@ def test(model, saver, sess, exp_string, data_generator, test_num_updates=None):
         writer.writerow(ci95)
 
 def main():
+    print(FLAGS.gpu_id)
+    if FLAGS.gpu_id == -1:
+        os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    elif FLAGS.gpu_id == -2:
+        pass
+    else:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu_id)
+
     if FLAGS.datasource == 'sinusoid':
         if FLAGS.train:
             test_num_updates = 5

@@ -76,6 +76,77 @@ class MAML:
             lossesb = [[]]*num_updates
             accuraciesb = [[]]*num_updates
 
+            def fast_task_metalearn(elems, reuse=True):
+                inputsa, inputsb, labelsa, labelsb = elems
+                inputsa_list = tf.unstack(inputsa, num=FLAGS.meta_batch_size)
+                inputsb_list = tf.unstack(inputsb, num=FLAGS.meta_batch_size)
+                labelsa_list = tf.unstack(labelsa, num=FLAGS.meta_batch_size)
+                labelsb_list = tf.unstack(labelsa, num=FLAGS.meta_batch_size)
+
+                results_task_outputa = [None]*FLAGS.meta_batch_size
+                results_task_lossa = [None]*FLAGS.meta_batch_size
+                results_task_outputbs = [[None]*FLAGS.meta_batch_size]*num_updates
+                results_task_lossesb = [[None]*FLAGS.meta_batch_size]*num_updates
+                if self.classification:
+                    results_task_accuracya = [None]*FLAGS.meta_batch_size
+                    results_task_accuraciesb = [[None]*FLAGS.meta_batch_size]*num_updates
+
+                for i in range(FLAGS.meta_batch_size):
+                    inputa, inputb, labela, labelb = inputsa_list[i], inputsb_list[i], labelsa_list[i], labelsb_list[i]
+                    task_outputbs, task_lossesb = [], []
+
+                    if self.classification:
+                        task_accuraciesb = []
+
+                    task_outputa = self.forward(inputa, weights, reuse=reuse)  # only reuse on the first iter
+                    results_task_outputa[i] = task_outputa
+                    task_lossa = self.loss_func(task_outputa, labela)
+                    results_task_lossa[i] = task_lossa
+
+                    grads = tf.gradients(task_lossa, list(weights.values()))
+                    if FLAGS.stop_grad:
+                        grads = [tf.stop_gradient(grad) for grad in grads]
+                    gradients = dict(zip(weights.keys(), grads))
+                    fast_weights = dict(zip(weights.keys(), [weights[key] - self.update_lr*gradients[key] for key in weights.keys()]))
+                    output = self.forward(inputb, fast_weights, reuse=True)
+                    #task_outputbs.append(output)
+                    results_task_outputbs[0][i] = output
+                    #task_lossesb.append(self.loss_func(output, labelb))
+                    results_task_lossesb[0][i] = self.loss_func(output,labelb)
+
+                    for j in range(num_updates - 1):
+                        loss = self.loss_func(self.forward(inputa, fast_weights, reuse=True), labela)
+                        grads = tf.gradients(loss, list(fast_weights.values()))
+                        if FLAGS.stop_grad:
+                            grads = [tf.stop_gradient(grad) for grad in grads]
+                        gradients = dict(zip(fast_weights.keys(), grads))
+                        fast_weights = dict(zip(fast_weights.keys(), [fast_weights[key] - self.update_lr*gradients[key] for key in fast_weights.keys()]))
+                        output = self.forward(inputb, fast_weights, reuse=True)
+                        #task_outputbs.append(output)
+                        results_task_outputbs[j+1][i] = output
+                        #task_lossesb.append(self.loss_func(output, labelb))
+                        results_task_lossesb[j+1][i] = self.loss_func(output,labelb)
+
+                    #task_output = [task_outputa, task_outputbs, task_lossa, task_lossesb]
+
+                    if self.classification:
+                        task_accuracya = tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputa), 1), tf.argmax(labela, 1))
+                        results_task_accuracya[i] = task_accuracya
+                        for j in range(num_updates):
+                            #task_accuraciesb.append(tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputbs[j]), 1), tf.argmax(labelb, 1)))
+                            results_task_accuraciesb[j][i] = tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputbs[j]), 1), tf.argmax(labelb, 1))
+
+                def nest_stack(nest_lst):
+                    return [tf.stack(x) for x in nest_lst]
+                task_outputs = [tf.stack(results_task_outputa), nest_stack(results_task_outputbs), tf.stack(results_task_lossa), nest_stack(results_task_lossesb)]
+                if self.classification:
+                    task_outputs.extend([tf.stack(results_task_accuracya), nest_stack(results_task_accuraciesb)])
+                return task_outputs
+
+
+
+
+
             def task_metalearn(inp, reuse=True):
                 """ Perform gradient descent for one task in the meta-batch. """
                 inputa, inputb, labela, labelb = inp
@@ -124,7 +195,10 @@ class MAML:
             out_dtype = [tf.float32, [tf.float32]*num_updates, tf.float32, [tf.float32]*num_updates]
             if self.classification:
                 out_dtype.extend([tf.float32, [tf.float32]*num_updates])
-            result = tf.map_fn(task_metalearn, elems=(self.inputa, self.inputb, self.labela, self.labelb), dtype=out_dtype, parallel_iterations=FLAGS.meta_batch_size)
+            if FLAGS.fast == False:
+                result = tf.map_fn(task_metalearn, elems=(self.inputa, self.inputb, self.labela, self.labelb), dtype=out_dtype, parallel_iterations=FLAGS.meta_batch_size)
+            else:
+                result = fast_task_metalearn(elems=(self.inputa, self.inputb, self.labela, self.labelb))
             if self.classification:
                 outputas, outputbs, lossesa, lossesb, accuraciesa, accuraciesb = result
             else:
