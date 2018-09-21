@@ -307,7 +307,7 @@ def main():
 
     saver = loader = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES), max_to_keep=10)
 
-    sess_config = tf.ConfigProto(intra_op_paralllism_threads=64)
+    sess_config = tf.ConfigProto(intra_op_parallelism_threads=64)
     sess = tf.Session(config=sess_config)
     #sess = tf.InteractiveSession()
 
@@ -342,8 +342,8 @@ def main():
     resume_itr = 0
     model_file = None
 
-    tf.global_variables_initializer().run()
-    tf.train.start_queue_runners()
+    sess.run(tf.global_variables_initializer())
+    tf.train.start_queue_runners(sess=sess)
 
     if FLAGS.resume or not FLAGS.train:
         model_file = tf.train.latest_checkpoint(FLAGS.logdir + '/' + exp_string)
