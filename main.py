@@ -307,7 +307,9 @@ def main():
 
     saver = loader = tf.train.Saver(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES), max_to_keep=10)
 
-    sess = tf.InteractiveSession()
+    sess_config = tf.ConfigProto(intra_op_paralllism_threads=64)
+    sess = tf.Session(config=sess_config)
+    #sess = tf.InteractiveSession()
 
     if FLAGS.train == False:
         # change to original meta batch size when loading model.
