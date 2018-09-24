@@ -77,7 +77,7 @@ class MAML:
             accuraciesb = [[]]*num_updates
 
             def fast_task_metalearn(elems, reuse=True):
-                inputsa, inputsb, labelsa, labelsb = elems
+                inputsa, inputsb, labelsa, labelsb, weightst = elems
                 inputsa_list = tf.unstack(inputsa, num=FLAGS.meta_batch_size)
                 inputsb_list = tf.unstack(inputsb, num=FLAGS.meta_batch_size)
                 labelsa_list = tf.unstack(labelsa, num=FLAGS.meta_batch_size)
@@ -98,17 +98,17 @@ class MAML:
                     if self.classification:
                         task_accuraciesb = []
 
-                    task_outputa = self.forward(inputa, weights, reuse=reuse)  # only reuse on the first iter
+                    task_outputa = self.forward(inputa, weightst, reuse=reuse)  # only reuse on the first iter
                     task_outputa = tf.Print(task_outputa, [task_outputa], message="current sample idx: %d"%i)
                     results_task_outputa[i] = task_outputa
                     task_lossa = self.loss_func(task_outputa, labela)
                     results_task_lossa[i] = task_lossa
 
-                    grads = tf.gradients(task_lossa, list(weights.values()))
+                    grads = tf.gradients(task_lossa, list(weightst.values()))
                     if FLAGS.stop_grad:
                         grads = [tf.stop_gradient(grad) for grad in grads]
-                    gradients = dict(zip(weights.keys(), grads))
-                    fast_weights = dict(zip(weights.keys(), [weights[key] - self.update_lr*gradients[key] for key in weights.keys()]))
+                    gradients = dict(zip(weightst.keys(), grads))
+                    fast_weights = dict(zip(weightst.keys(), [weightst[key] - self.update_lr*gradients[key] for key in weightst.keys()]))
                     output = self.forward(inputb, fast_weights, reuse=True)
                     #task_outputbs.append(output)
                     results_task_outputbs[0][i] = output
@@ -197,10 +197,11 @@ class MAML:
             out_dtype = [tf.float32, [tf.float32]*num_updates, tf.float32, [tf.float32]*num_updates]
             if self.classification:
                 out_dtype.extend([tf.float32, [tf.float32]*num_updates])
+            tiled_weights = self.get_tiled_weights(weights)
             if FLAGS.fast == False:
                 result = tf.map_fn(task_metalearn, elems=(self.inputa, self.inputb, self.labela, self.labelb), dtype=out_dtype, parallel_iterations=FLAGS.meta_batch_size)
             else:
-                result = fast_task_metalearn(elems=(self.inputa, self.inputb, self.labela, self.labelb))
+                result = fast_task_metalearn(elems=(self.inputa, self.inputb, self.labela, self.labelb, tiled_weights))
             if self.classification:
                 outputas, outputbs, lossesa, lossesb, accuraciesa, accuraciesb = result
             else:
@@ -239,6 +240,13 @@ class MAML:
             tf.summary.scalar(prefix+'Post-update loss, step ' + str(j+1), total_losses2[j])
             if self.classification:
                 tf.summary.scalar(prefix+'Post-update accuracy, step ' + str(j+1), total_accuracies2[j])
+
+    def get_tiled_weights(self, weights):
+        tiled = {}
+        for k in weights.keys():
+            tiled[k] = tf.tile(weights[k], FLAGS.meta_batch_size)
+        return tiled
+
 
     ### Network construction functions (fc networks and conv networks)
     def construct_fc_weights(self):
