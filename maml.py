@@ -157,6 +157,7 @@ class MAML:
                     task_accuraciesb = []
 
                 task_outputa = self.forward(inputa, weights, reuse=reuse)  # only reuse on the first iter
+                task_outputa = tf.Print(task_outputa, [task_outputa], message="current sample idx: %d"%0)
                 task_lossa = self.loss_func(task_outputa, labela)
 
                 grads = tf.gradients(task_lossa, list(weights.values()))
