@@ -75,6 +75,7 @@ flags.DEFINE_integer('gpu_id', -1, 'the id of the gpu to use')
 flags.DEFINE_bool('fast', True, "whether to use python for loop instead of tf.map_fn")
 
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
+    num_classes = data_generator.num_classes
     batch_x, batch_y, amp, phase = data_generator.generate()
 
     if FLAGS.baseline == 'oracle':
