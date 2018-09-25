@@ -32,6 +32,7 @@ import tensorflow as tf
 from data_generator import DataGenerator
 from maml import MAML
 from tensorflow.python.platform import flags
+import os
 
 FLAGS = flags.FLAGS
 
@@ -215,6 +216,8 @@ def test(model, saver, sess, exp_string, data_generator, test_num_updates=None):
         writer.writerow(ci95)
 
 def main():
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
     if FLAGS.datasource == 'sinusoid':
         if FLAGS.train:
             test_num_updates = 5
