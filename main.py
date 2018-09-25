@@ -67,6 +67,8 @@ flags.DEFINE_bool('test_set', False, 'Set to true to test on the the test set, F
 flags.DEFINE_integer('train_update_batch_size', -1, 'number of examples used for gradient update during training (use if you want to test with a different number).')
 flags.DEFINE_float('train_update_lr', -1, 'value of inner gradient step step during training. (use if you want to test with a different value)') # 0.1 for omniglot
 
+flags.DEFINE_bool("batch_maml", False, "whether to use batch version of maml")
+
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100
     SAVE_INTERVAL = 1000
