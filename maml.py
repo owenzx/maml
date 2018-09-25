@@ -23,8 +23,8 @@ class MAML:
         self.meta_lr = tf.placeholder_with_default(FLAGS.meta_lr, ())
         self.classification = False
         self.test_num_updates = test_num_updates
-        if FLAGS.batch_maml:
-            self.constuct_model = self.construct_model_standard
+        if not FLAGS.batch_maml:
+            self.construct_model = self.construct_model_standard
         else:
             self.construct_model = self.constuct_model_fast
         if FLAGS.datasource == 'sinusoid':
@@ -80,33 +80,31 @@ class MAML:
             lossesb = [[]]*num_updates
             accuraciesb = [[]]*num_updates
 
-            def task_metalearn_batch(inputa, inputb, labela, labelb, stacked_weights):
-                task_outputa = self.forward(inputa, weights, reuse=reuse)
-                task_lossa = tf.loss_func(task_outputa, labela)
+            def task_metalearn_batch(inputa, inputb, labela, labelb, stacked_weights, reuse=True):
+                task_outputbs, task_lossesb = [], []
+
+                if self.classification:
+                    task_accuraciesb = []
+
+                task_outputa = self.forward(inputa, stacked_weights, reuse=reuse)
+                print(task_outputa.shape)
+                #task_lossa = self.loss_func(task_outputa, labela)
+                task_lossa = tf.reduce_sum(task_outputa)
 
                 grads = tf.gradients(task_lossa, list(stacked_weights.values()))
 
                 if FLAGS.stop_grad:
                     grads = [tf.stop_gradient(g) for g in grads]
 
-                gradients = dict(zip(weights.keys(), grads))
-                fast_weights = dict(zip(weights.keys(), [weights[key] - self.update_lr*gradients[key] for key in weights.keys()]))
+                gradients = dict(zip(stacked_weights.keys(), grads))
+                fast_weights = dict(zip(stacked_weights.keys(), [stacked_weights[key] - self.update_lr*gradients[key] for key in stacked_weights.keys()]))
 
                 output = self.forward(inputb, fast_weights, reuse=True)
 
                 task_outputbs.append(output)
-                task_lossesb.append(self.loss_func(output, labelb))
+                #task_lossesb.append(self.loss_func(output, labelb))
+                task_lossesb.append(tf.reduce_sum(output))
 
-                for j in range(num_updates - 1):
-                    loss = self.loss_func(self.forward(inputa, fast_weights, reuse=True), labela)
-                    grads = tf.gradients(loss, list(fast_weights.values()))
-                    if FLAGS.stop_grad:
-                        grads = [tf.stop_gradient(grad) for grad in grads]
-                    gradients = dict(zip(fast_weights.keys(), grads))
-                    fast_weights = dict(zip(fast_weights.keys(), [fast_weights[key] - self.update_lr*gradients[key] for key in fast_weights.keys()]))
-                    output = self.forward(inputb, fast_weights, reuse=True)
-                    task_outputbs.append(output)
-                    task_lossesb.append(self.loss_func(output, labelb))
 
                 task_output = [task_outputa, task_outputbs, task_lossa, task_lossesb]
 
@@ -122,17 +120,17 @@ class MAML:
                 
 
             def get_stacked_weights(weights):
-                stacked_w = dict{}
-                for k,w in weights.items:
+                stacked_w = dict()
+                for k,w in weights.items():
                     stacked_w[k] = tf.stack([w for _ in range(FLAGS.meta_batch_size)])
                 return stacked_w
 
             stacked_weights = get_stacked_weights(weights)
 
             #TODO:NOT FINISHED
-            if FLAGS.norm is not 'None':
+            #if FLAGS.norm is not 'None':
                 # to initialize the batch norm vars, might want to combine this, and not run idx 0 twice.
-                unused = task_metalearn((self.inputa[0], self.inputb[0], self.labela[0], self.labelb[0]), False)
+            #    unused = task_metalearn((self.inputa[0], self.inputb[0], self.labela[0], self.labelb[0]), False)
 
             result = task_metalearn_batch(self.inputa, self.inputb, self.labela, self.labelb, stacked_weights)
             #out_dtype = [tf.float32, [tf.float32]*num_updates, tf.float32, [tf.float32]*num_updates]
@@ -142,7 +140,7 @@ class MAML:
             if self.classification:
                 outputas, outputbs, lossesa, lossesb, accuraciesa, accuraciesb = result
             else:
-                outputas, outputbs, lossesa, lossesb  = resul
+                outputas, outputbs, lossesa, lossesb  = result
 
         ## Performance & Optimization
         if 'train' in prefix:
@@ -311,6 +309,9 @@ class MAML:
 
     def forward_fc(self, inp, weights, reuse=False):
         hidden = normalize(tf.matmul(inp, weights['w1']) + weights['b1'], activation=tf.nn.relu, reuse=reuse, scope='0')
+        #print(inp.shape)
+        #print(weights['w1'].shape)
+        #print(hidden.shape)
         for i in range(1,len(self.dim_hidden)):
             hidden = normalize(tf.matmul(hidden, weights['w'+str(i+1)]) + weights['b'+str(i+1)], activation=tf.nn.relu, reuse=reuse, scope=str(i+1))
         return tf.matmul(hidden, weights['w'+str(len(self.dim_hidden)+1)]) + weights['b'+str(len(self.dim_hidden)+1)]

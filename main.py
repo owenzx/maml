@@ -74,7 +74,7 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100
     SAVE_INTERVAL = 1000
     if FLAGS.datasource == 'sinusoid':
-        PRINT_INTERVAL = 1000
+        PRINT_INTERVAL = 100
         TEST_PRINT_INTERVAL = PRINT_INTERVAL*5
     else:
         PRINT_INTERVAL = 100
@@ -216,13 +216,13 @@ def test(model, saver, sess, exp_string, data_generator, test_num_updates=None):
         writer.writerow(ci95)
 
 def main():
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
     if FLAGS.datasource == 'sinusoid':
         if FLAGS.train:
-            test_num_updates = 5
+            test_num_updates = 1
         else:
-            test_num_updates = 10
+            test_num_updates = 1
     else:
         if FLAGS.datasource == 'miniimagenet':
             if FLAGS.train == True:
