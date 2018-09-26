@@ -26,7 +26,7 @@ class MAML:
         if not FLAGS.batch_maml:
             self.construct_model = self.construct_model_standard
         else:
-            self.construct_model = self.constuct_model_fast
+            self.construct_model = self.construct_model_fast
         if FLAGS.datasource == 'sinusoid':
             self.dim_hidden = [40, 40]
             self.loss_func = mse
@@ -51,7 +51,7 @@ class MAML:
         else:
             raise ValueError('Unrecognized data source.')
 
-    def constuct_model_fast(self, input_tensors=None, prefix='metatrain_'):
+    def construct_model_fast(self, input_tensors=None, prefix='metatrain_'):
         if input_tensors is None:
             self.inputa = tf.placeholder(tf.float32)
             self.inputb = tf.placeholder(tf.float32)
@@ -131,6 +131,7 @@ class MAML:
             #if FLAGS.norm is not 'None':
                 # to initialize the batch norm vars, might want to combine this, and not run idx 0 twice.
             #    unused = task_metalearn((self.inputa[0], self.inputb[0], self.labela[0], self.labelb[0]), False)
+            self.inputa = tf.Print(self.inputa, [tf.shape(self.inputa)])
 
             result = task_metalearn_batch(self.inputa, self.inputb, self.labela, self.labelb, stacked_weights)
             #out_dtype = [tf.float32, [tf.float32]*num_updates, tf.float32, [tf.float32]*num_updates]
@@ -308,6 +309,7 @@ class MAML:
         return weights
 
     def forward_fc(self, inp, weights, reuse=False):
+        #inp = tf.Print(inp, [tf.shape(inp)])
         hidden = normalize(tf.matmul(inp, weights['w1']) + weights['b1'], activation=tf.nn.relu, reuse=reuse, scope='0')
         #print(inp.shape)
         #print(weights['w1'].shape)
