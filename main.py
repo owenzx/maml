@@ -33,6 +33,7 @@ from data_generator import DataGenerator
 from maml import MAML
 from tensorflow.python.platform import flags
 import os
+import time
 
 FLAGS = flags.FLAGS
 
@@ -103,6 +104,10 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
             labela = batch_y[:, :num_classes*FLAGS.update_batch_size, :]
             inputb = batch_x[:, num_classes*FLAGS.update_batch_size:, :] # b used for testing
             labelb = batch_y[:, num_classes*FLAGS.update_batch_size:, :]
+            inputa = inputa.reshape(inputa.shape[0],-1)
+            labela = labela.reshape(labela.shape[0],-1)
+            inputb = inputb.reshape(inputb.shape[0],-1)
+            labelb = labelb.reshape(labelb.shape[0],-1)
             feed_dict = {model.inputa: inputa, model.inputb: inputb,  model.labela: labela, model.labelb: labelb}
 
         if itr < FLAGS.pretrain_iterations:
@@ -216,7 +221,7 @@ def test(model, saver, sess, exp_string, data_generator, test_num_updates=None):
         writer.writerow(ci95)
 
 def main():
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    #os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
     if FLAGS.datasource == 'sinusoid':
         if FLAGS.train:

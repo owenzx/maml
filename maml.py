@@ -53,10 +53,10 @@ class MAML:
 
     def construct_model_fast(self, input_tensors=None, prefix='metatrain_'):
         if input_tensors is None:
-            self.inputa = tf.placeholder(tf.float32)
-            self.inputb = tf.placeholder(tf.float32)
-            self.labela = tf.placeholder(tf.float32)
-            self.labelb = tf.placeholder(tf.float32)
+            self.inputa = tf.placeholder(tf.float32, shape=(FLAGS.meta_batch_size,1))
+            self.inputb = tf.placeholder(tf.float32, shape=(FLAGS.meta_batch_size,1))
+            self.labela = tf.placeholder(tf.float32, shape=(FLAGS.meta_batch_size,1))
+            self.labelb = tf.placeholder(tf.float32, shape=(FLAGS.meta_batch_size,1))
         else:
             self.inputa = input_tensors['inputa']
             self.inputb = input_tensors['inputb']
@@ -88,8 +88,8 @@ class MAML:
 
                 task_outputa = self.forward(inputa, stacked_weights, reuse=reuse)
                 print(task_outputa.shape)
-                #task_lossa = self.loss_func(task_outputa, labela)
-                task_lossa = tf.reduce_sum(task_outputa)
+                task_lossa = self.loss_func(task_outputa, labela)
+                #task_lossa = tf.reduce_sum(task_outputa)
 
                 grads = tf.gradients(task_lossa, list(stacked_weights.values()))
 
@@ -102,8 +102,8 @@ class MAML:
                 output = self.forward(inputb, fast_weights, reuse=True)
 
                 task_outputbs.append(output)
-                #task_lossesb.append(self.loss_func(output, labelb))
-                task_lossesb.append(tf.reduce_sum(output))
+                task_lossesb.append(self.loss_func(output, labelb))
+                #task_lossesb.append(tf.reduce_sum(output))
 
 
                 task_output = [task_outputa, task_outputbs, task_lossa, task_lossesb]
@@ -122,7 +122,10 @@ class MAML:
             def get_stacked_weights(weights):
                 stacked_w = dict()
                 for k,w in weights.items():
-                    stacked_w[k] = tf.stack([w for _ in range(FLAGS.meta_batch_size)])
+                    if k[0]!= 'b':
+                        stacked_w[k] = tf.stack([w for _ in range(FLAGS.meta_batch_size)])
+                    else:
+                        stacked_w[k] = tf.expand_dims(tf.stack([w for _ in range(FLAGS.meta_batch_size)]), axis=1)
                 return stacked_w
 
             stacked_weights = get_stacked_weights(weights)
@@ -131,7 +134,7 @@ class MAML:
             #if FLAGS.norm is not 'None':
                 # to initialize the batch norm vars, might want to combine this, and not run idx 0 twice.
             #    unused = task_metalearn((self.inputa[0], self.inputb[0], self.labela[0], self.labelb[0]), False)
-            self.inputa = tf.Print(self.inputa, [tf.shape(self.inputa)])
+            #inputa = tf.Print(self.inputa, [tf.shape(self.inputa)], message="INPUTA:")
 
             result = task_metalearn_batch(self.inputa, self.inputb, self.labela, self.labelb, stacked_weights)
             #out_dtype = [tf.float32, [tf.float32]*num_updates, tf.float32, [tf.float32]*num_updates]
@@ -309,8 +312,13 @@ class MAML:
         return weights
 
     def forward_fc(self, inp, weights, reuse=False):
-        #inp = tf.Print(inp, [tf.shape(inp)])
+        #inp = tf.Print(inp,[tf.shape(inp)])
+        inp = tf.expand_dims(inp, axis=1)
+        #inp = tf.Print(inp,[tf.shape(inp)])
+        #print("w1.shape="+str(weights["w1"].shape))
+        #print("b1.shape="+str(weights["b1"].shape))
         hidden = normalize(tf.matmul(inp, weights['w1']) + weights['b1'], activation=tf.nn.relu, reuse=reuse, scope='0')
+        #hidden = tf.Print(hidden,[tf.shape(hidden)])
         #print(inp.shape)
         #print(weights['w1'].shape)
         #print(hidden.shape)
