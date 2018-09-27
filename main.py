@@ -111,6 +111,8 @@ flags.DEFINE_bool('use_static_rnn', False, 'set to True to use static rnn instea
 flags.DEFINE_bool('debug', False, 'whether run in debug mode')
 flags.DEFINE_integer('dim_emb', 200, 'the dimension of the embedding')
 
+flags.DEFINE_bool('batch_mode', True, 'whether use batch to do everything')
+
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100
     SAVE_INTERVAL = 1000

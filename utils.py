@@ -1,5 +1,4 @@
 """ Utility functions. """
-import numpy as np
 import os
 import random
 import tensorflow as tf
@@ -154,6 +153,7 @@ def get_pad_batch(a, batch_size):
         padded.append(batch)
     return padded
 
+
 def get_pad_metabatch(a, batch_size):
     padded = []
     #print('A')
@@ -284,4 +284,3 @@ def convert_tensor_to_list(t, max_len, dim):
     t = tf.reshape(t, [-1, dim])
     l = tf.split(t, max_len)
     return l
-

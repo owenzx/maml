@@ -218,21 +218,23 @@ class DataGenerator(object):
             all_text_len.append(text_len)
 
         #assert(self.num_samples_per_class==1)
-        if not FLAGS.use_static_rnn:
-            padded_all_text = get_pad_batch(all_text, self.num_samples_per_class)
+
+        if FLAGS.batch_mode:
+            meta_all_text = get_static_pad_batch(all_text, self.batch_size, max_len)
+            meta_all_label = get_batch_labels(all_label, self.batch_size)    
+            meta_all_text_len = get_batch_labels(all_text_len, self.batch_size)    
         else:
             padded_all_text = get_static_pad_batch(all_text, self.num_samples_per_class, max_len)
-
-        all_label = get_batch_labels(all_label, self.num_samples_per_class)
-        all_text_len = get_batch_labels(all_text_len, self.num_samples_per_class)
-        meta_all_text = get_pad_metabatch(padded_all_text, self.batch_size)
-        meta_all_label = get_metabatch_labels(all_label, self.batch_size)    
-        meta_all_text_len = get_metabatch_labels(all_text_len, self.batch_size)    
+            all_label = get_batch_labels(all_label, self.num_samples_per_class)
+            all_text_len = get_batch_labels(all_text_len, self.num_samples_per_class)
+            meta_all_text = get_pad_metabatch(padded_all_text, self.batch_size)
+            meta_all_label = get_metabatch_labels(all_label, self.batch_size)    
+            meta_all_text_len = get_metabatch_labels(all_text_len, self.batch_size)    
 
         print(len(meta_all_text))
-        dataset_text = tf.data.Dataset.from_generator(lambda: meta_all_text, tf.int64, tf.TensorShape([self.batch_size, self.num_samples_per_class, None]))
-        dataset_label = tf.data.Dataset.from_generator(lambda: meta_all_label, tf.int64, tf.TensorShape([self.batch_size, self.num_samples_per_class]))
-        dataset_text_len = tf.data.Dataset.from_generator(lambda: meta_all_text_len, tf.int64,tf.TensorShape([self.batch_size,self.num_samples_per_class]))
+        dataset_text = tf.data.Dataset.from_generator(lambda: meta_all_text, tf.int64, tf.TensorShape([self.batch_size, None]))
+        dataset_label = tf.data.Dataset.from_generator(lambda: meta_all_label, tf.int64, tf.TensorShape([self.batch_size]))
+        dataset_text_len = tf.data.Dataset.from_generator(lambda: meta_all_text_len, tf.int64,tf.TensorShape([self.batch_size]))
 
         dataset_input = tf.data.Dataset.zip((dataset_text, dataset_text_len))
 

@@ -30,6 +30,7 @@ from tensorflow.python.util import nest
 from tensorflow.python.util.tf_export import tf_export
 from tensorflow.contrib.layers.python.layers import layers
 
+from batch_ops import batch_matmul
 
 
 _BIAS_VARIABLE_NAME = "bias"
@@ -174,7 +175,8 @@ class Customized_BasicLSTMCell(tf.contrib.rnn.LayerRNNCell):
                norm_shift=0.0,
                dropout_keep_prob=1.0,
                dropout_prob_seed=None,
-               dtype=None):
+               dtype=None,
+               batch_mode=True):
     """Initialize the basic LSTM cell.
 
     Args:
@@ -215,6 +217,7 @@ class Customized_BasicLSTMCell(tf.contrib.rnn.LayerRNNCell):
     self._layer_norm = layer_norm
     self._norm_gain = norm_gain
     self._norm_shift = norm_shift
+    self._batch_mode = batch_mode
 
   @property
   def state_size(self):
@@ -254,7 +257,7 @@ class Customized_BasicLSTMCell(tf.contrib.rnn.LayerRNNCell):
     return normalized
 
   def update_weights(self, new_kernel, new_bias):
-      if self.built:
+      if self.built and not self._batch_mode:
           assert(self._kernel.shape == new_kernel.shape)
           assert(self._bias.shape == new_bias.shape)
       self._kernel = new_kernel
@@ -283,10 +286,14 @@ class Customized_BasicLSTMCell(tf.contrib.rnn.LayerRNNCell):
       c, h = state
     else:
       c, h = array_ops.split(value=state, num_or_size_splits=2, axis=one)
-
-    gate_inputs = math_ops.matmul(
-        array_ops.concat([inputs, h], 1), self._kernel)
-    gate_inputs = nn_ops.bias_add(gate_inputs, self._bias)
+    if self._batch_mode:
+      gate_inputs = batch_matmul(
+          array_ops.concat([inputs, h], 1), self._kernel)
+      gate_inputs = gate_inputs + self._bias
+    else:
+      gate_inputs = math_ops.matmul(
+          array_ops.concat([inputs, h], 1), self._kernel)
+      gate_inputs = nn_ops.bias_add(gate_inputs, self._bias)
 
     # i = input_gate, j = new_input, f = forget_gate, o = output_gate
     i, j, f, o = array_ops.split(
@@ -341,7 +348,8 @@ class Customized_LayerNormBasicLSTMCell(tf.nn.rnn_cell.RNNCell):
                dropout_keep_prob=1.0,
                dropout_prob_seed=None,
                reuse=None,
-               dtype=None):
+               dtype=None,
+               batch_mode=True):
     """Initializes the basic LSTM cell.
     Args:
       num_units: int, The number of units in the LSTM cell.
@@ -375,6 +383,7 @@ class Customized_LayerNormBasicLSTMCell(tf.nn.rnn_cell.RNNCell):
     self._norm_gain = norm_gain
     self._norm_shift = norm_shift
     self._reuse = reuse
+    self._batch_mode = batch_mode
 
   @property
   def state_size(self):
@@ -409,11 +418,17 @@ class Customized_LayerNormBasicLSTMCell(tf.nn.rnn_cell.RNNCell):
     dtype = args.dtype
     #weights = vs.get_variable("kernel", [proj_size, out_size], dtype=dtype)
     weights = self._kernel
-    out = math_ops.matmul(args, weights)
+    if self._batch_mode:
+      out = batch_matmul(args, weights)
+    else:
+      out = math_ops.matmul(args, weights)
     if not self._layer_norm:
       #bias = vs.get_variable("bias", [out_size], dtype=dtype)
       bias = self._bias
-      out = nn_ops.bias_add(out, bias)
+      if self._batch_mode:
+        out = nn_ops.bias_add(out, bias)
+      else:
+        out = out + bias
     return out
 
   def call(self, inputs, state):
@@ -442,6 +457,7 @@ class Customized_LayerNormBasicLSTMCell(tf.nn.rnn_cell.RNNCell):
 
     new_state = tf.nn.rnn_cell.LSTMStateTuple(new_c, new_h)
     return new_h, new_state
+
 
   def build(self, inputs_shape):
     if inputs_shape[1].value is None:

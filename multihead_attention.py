@@ -8,6 +8,7 @@ kbpark.linguist@gmail.com.
 
 from __future__ import print_function
 import tensorflow as tf
+from batch_ops import batch_matmul
 
 def multihead_attention_no_var(queries, 
                         keys, 
@@ -54,9 +55,14 @@ def multihead_attention_no_var(queries,
         keys_flat = tf.reshape(keys,[batch_size*keys_len,-1])
 
 
-        Q = tf.nn.relu(tf.matmul(queries_flat, weights[prefix+"q"]))
-        K = tf.nn.relu(tf.matmul(keys_flat, weights[prefix+"k"]))
-        V = tf.nn.relu(tf.matmul(keys_flat, weights[prefix+"v"]))
+        if FLAGS.batch_mode:
+            Q = tf.nn.relu(batch_matmul(queries_flat, weights[prefix+"q"]))
+            K = tf.nn.relu(batch_matmul(keys_flat, weights[prefix+"k"]))
+            V = tf.nn.relu(batch_matmul(keys_flat, weights[prefix+"v"]))
+        else:
+            Q = tf.nn.relu(tf.matmul(queries_flat, weights[prefix+"q"]))
+            K = tf.nn.relu(tf.matmul(keys_flat, weights[prefix+"k"]))
+            V = tf.nn.relu(tf.matmul(keys_flat, weights[prefix+"v"]))
 
         Q = tf.reshape(Q, [batch_size, queries_len, num_units])
         K = tf.reshape(K, [batch_size, keys_len, num_units])
@@ -69,7 +75,10 @@ def multihead_attention_no_var(queries,
         V_ = tf.concat(tf.split(V, num_heads, axis=2), axis=0) # (h*N, T_k, C/h) 
 
         # Multiplication
-        outputs = tf.matmul(Q_, tf.transpose(K_, [0, 2, 1])) # (h*N, T_q, T_k)
+        if FLAGS.batch_mode:
+            outputs = batch_matmul(Q_, tf.transpose(K_, [0, 2, 1])) # (h*N, T_q, T_k)
+        else:
+            outputs = tf.matmul(Q_, tf.transpose(K_, [0, 2, 1])) # (h*N, T_q, T_k)
         
         # Scale
         K_dim_float = tf.to_float(tf.shape(K_)[-1])
@@ -105,7 +114,10 @@ def multihead_attention_no_var(queries,
         outputs = tf.layers.dropout(outputs, rate=dropout_rate, training=tf.convert_to_tensor(is_training))
                
         # Weighted sum
-        outputs = tf.matmul(outputs, V_) # ( h*N, T_q, C/h)
+        if FLAGS.batch_mode:
+            outputs = batch_matmul(outputs, V_) # ( h*N, T_q, C/h)
+        else:
+            outputs = tf.matmul(outputs, V_) # ( h*N, T_q, C/h)
         
         # Restore shape
         outputs = tf.concat(tf.split(outputs, num_heads, axis=0), axis=2 ) # (N, T_q, C)

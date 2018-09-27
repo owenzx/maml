@@ -18,6 +18,8 @@ from multihead_attention import multihead_attention_no_var
 from constants import *
 from my_static_brnn import my_static_bidirectional_rnn
 
+from batch_ops import batch_embedding_lookup, batch_matmul
+
 FLAGS = flags.FLAGS
 
 class MAML:
@@ -29,10 +31,7 @@ class MAML:
         self.meta_lr = tf.placeholder_with_default(FLAGS.meta_lr, ())
         self.classification = False
         self.test_num_updates = test_num_updates
-        if FLAGS.task == 'usl_adapt':
-            self.construct_model = self.construct_model_usl_adapt
-        else:
-            self.construct_model = self.construct_model_standard
+        self.construct_model = self.construct_model_batch
         if FLAGS.datasource == 'sinusoid':
             self.dim_hidden = [40, 40]
             self.loss_func = mse
@@ -76,7 +75,10 @@ class MAML:
             self.classification = True
             self.dim_emb = FLAGS.dim_emb
             self.num_layers = FLAGS.num_rnn_layers
-            self.batch_size = FLAGS.update_batch_size
+            if FLAGS.batch_mode:
+                self.batch_size = FLAGS.meta_batch_size
+            else:
+                self.batch_size = FLAGS.update_batch_size
             #Other hyper-parameters
         else:
             raise ValueError('Unrecognized data source.')
@@ -86,7 +88,7 @@ class MAML:
         self.vocab_size = len(word2idx)
 
     
-    def construct_model_usl_adapt(self, input_tensors=None, prefix='metatrain_', max_len=None):
+    def construct_model_batch(self, input_tensors=None, prefix='metatrain_', max_len=0):
         self.inputa = input_tensors['inputa']
         self.inputb = input_tensors['inputb']
         self.labela, _ = input_tensors['labela']
@@ -95,10 +97,10 @@ class MAML:
         with tf.variable_scope('model', reuse=None) as training_scope:
             if 'weights' in dir(self):
                 training_scope.reuse_variables()
-                weights, weightsa, weightsb = self.weights, self.weightsa, self.weightsb
+                weights, weightsa_keys, weightsb_keys = self.weights, self.weightsa_keys, self.weightsb_keys
             else:
                 # Define the weights
-                self.weights, self.weightsa, self.weightsb = weights, weightsa, weightsb = self.construct_weights()
+                self.weights, self.weightsa_keys, self.weightsb_keys = weights, weightsa_keys, weightsb_keys = self.construct_weights()
 
             # outputbs[i] and lossesb[i] is the output and loss after i+1 gradient updates
             lossesa, outputas, lossesb, outputbs = [], [], [], []
@@ -108,35 +110,27 @@ class MAML:
             lossesb = [[]]*num_updates
             accuraciesb = [[]]*num_updates
 
-            def task_metalearn(inp, reuse=True, is_train=True):
-                inputa, inputb, labela, labelb = inp
+            def task_metalearn(inputa, inputb, labela, labelb, w, reuse=True, is_train=True):
                 task_outputbs, task_lossesb = [], []
                 if self.classification:
                     task_accuraciesb = []
-                task_outputa, mask= self.forward(inputa, weights, reuse=reuse, is_train=is_train, task="aux", max_len = max_len)
+                task_outputa, mask= self.forward(inputa, w, reuse=reuse, is_train=is_train, task="aux", max_len = max_len)
                 task_lossa = self.aux_loss_func(task_outputa, labela, mask)
-                grads = tf.gradients(task_lossa, list(weightsa.values()), aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
+                grads = tf.gradients(task_lossa, list(w.values()), aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
 
                 if FLAGS.stop_grad:
                     grads = [tf.stop_gradient(grad) for grad in grads]
-                gradients = dict(zip(weightsa.keys(), grads))
+                gradients = dict(zip(w.keys(), grads))
 
-                def get_weight(key, weighta, weightsb):
-                    if key not in weightsa.keys():
-                        return weightsb[key]
+                def get_weight(key, weightsa_keys, weightsb_keys):
+                    if key not in weightsa_keys:
+                        return w[key]
                     if key!='emb':
-                        return  weightsb[key] - self.update_lr*gradients[key] 
+                        return  w[key] - self.update_lr*gradients[key] 
                     else:
-                        return weightsb[key] - self.update_lr*tf.convert_to_tensor(gradients[key])
+                        return w[key] - self.update_lr*tf.convert_to_tensor(gradients[key])
 
-                #fast_weights = dict(zip(weightsb.keys(), 
-                #                    [weightsb[key] if key not in weightsa.keys() 
-                #                    else (
-                #                        weights[key] - self.update_lr*gradients[key] if key!='emb' 
-                #                        else weights[key] - self.update_lr*tf.convert_to_tensor(gradients[key])
-                #                    )
-                #                     for key in weightsb.keys()]))
-                fast_weights = dict(zip(weightsb.keys(), [get_weight(key, weightsa, weightsb) for key in weightsb.keys()]))
+                fast_weights = dict(zip(weightsb_keys, [get_weight(key, weightsa_keys, weightsb_keys) for key in weightsb_keys]))
                 output = self.forward(inputb, fast_weights, reuse=True, is_train = is_train, task="main", max_len=max_len)
                 task_outputbs.append(output)
                 task_lossesb.append(self.real_loss_func(output, labelb))
@@ -151,6 +145,12 @@ class MAML:
                     task_output.extend([task_accuraciesb])
 
                 return task_output
+            
+            def get_stacked_weights(weights):
+                stacked_w = dict()
+                for k,w in weights.items():
+                    stacked_w[k] = tf.stack([w for _ in range(FLAGS.meta_batch_size)])
+                return stacked_w
 
 
 
@@ -161,7 +161,8 @@ class MAML:
             out_dtype = [(tf.float32, tf.float32), [tf.float32]*num_updates, tf.float32, [tf.float32]*num_updates]
             if self.classification:
                 out_dtype.extend([[tf.float32]*num_updates])
-            result = tf.map_fn(task_metalearn, elems=(self.inputa, self.inputb, self.labela, self.labelb), dtype=out_dtype, parallel_iterations=FLAGS.meta_batch_size)
+            w = get_stacked_weights(weights)
+            result = task_metalearn(self.inputa, self.inputb, self.labela, self.labelb, w)
             if self.classification:
                 outputas, outputbs, lossesa, lossesb, accuraciesb = result
             else:
@@ -200,143 +201,6 @@ class MAML:
             if self.classification:
                 tf.summary.scalar(prefix+'Real task accuracy, step ' + str(j+1), total_accuracies2[j])
 
-
-
-
-
-    def construct_model_standard(self, input_tensors=None, prefix='metatrain_'):
-        # a: training data for inner gradient, b: test data for meta gradient
-        if input_tensors is None:
-            self.inputa = tf.placeholder(tf.float32)
-            self.inputb = tf.placeholder(tf.float32)
-            self.labela = tf.placeholder(tf.float32)
-            self.labelb = tf.placeholder(tf.float32)
-        else:
-            self.inputa = input_tensors['inputa']
-            self.inputb = input_tensors['inputb']
-            self.labela = input_tensors['labela']
-            self.labelb = input_tensors['labelb']
-
-        with tf.variable_scope('model', reuse=None) as training_scope:
-            if 'weights' in dir(self):
-                training_scope.reuse_variables()
-                weights = self.weights
-            else:
-                # Define the weights
-                self.weights = weights = self.construct_weights()
-
-            # outputbs[i] and lossesb[i] is the output and loss after i+1 gradient updates
-            lossesa, outputas, lossesb, outputbs = [], [], [], []
-            accuraciesa, accuraciesb = [], []
-            num_updates = max(self.test_num_updates, FLAGS.num_updates)
-            outputbs = [[]]*num_updates
-            lossesb = [[]]*num_updates
-            accuraciesb = [[]]*num_updates
-
-            def task_metalearn(inp, reuse=True, is_train=True):
-                """ Perform gradient descent for one task in the meta-batch. """
-                inputa, inputb, labela, labelb = inp
-                #inputa = tf.Print(inputa, [inputa], summarize=10000)
-                #labela = tf.Print(labela, [labela])
-                task_outputbs, task_lossesb = [], []
-
-                if self.classification:
-                    task_accuraciesb = []
-
-                task_outputa = self.forward(inputa, weights, reuse=reuse, is_train=is_train)  # only reuse on the first iter
-                task_lossa = self.loss_func(task_outputa, labela)
-
-                grads = tf.gradients(task_lossa, list(weights.values()), aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
-                if FLAGS.stop_grad:
-                    #TODO: allow some weights to not have grads
-                    grads = [tf.stop_gradient(grad) for grad in grads]
-                gradients = dict(zip(weights.keys(), grads))
-                #print([(c,type(weights[c])) for c in weights.keys()])
-                #print([(c,type(gradients[c])) for c in weights.keys()])
-                
-                fast_weights = dict(zip(weights.keys(), [weights[key] - self.update_lr*gradients[key] if key!='emb' else weights[key] - self.update_lr*tf.convert_to_tensor(gradients[key]) for key in weights.keys()]))
-                output = self.forward(inputb, fast_weights, reuse=True, is_train=is_train)
-                #output = tf.Print(output, [output])
-                task_outputbs.append(output)
-                task_lossesb.append(self.loss_func(output, labelb))
-
-                for j in range(num_updates - 1):
-                    loss = self.loss_func(self.forward(inputa, fast_weights, reuse=True, is_train=is_train), labela)
-                    grads = tf.gradients(loss, list(fast_weights.values()), aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
-                    if FLAGS.stop_grad:
-                        grads = [tf.stop_gradient(grad) for grad in grads]
-                    gradients = dict(zip(fast_weights.keys(), grads))
-                    #print([(c,type(fast_weights[c])) for c in fast_weights.keys()])
-                    #print([(c,type(gradients[c])) for c in fast_weights.keys()])
-                    fast_weights = dict(zip(fast_weights.keys(), [fast_weights[key] - self.update_lr*gradients[key] if key!='emb' else fast_weights[key] - self.update_lr*tf.convert_to_tensor(gradients[key]) for key in fast_weights.keys()]))
-                    output = self.forward(inputb, fast_weights, reuse=True, is_train=is_train)
-                    task_outputbs.append(output)
-                    task_lossesb.append(self.loss_func(output, labelb))
-
-                task_output = [task_outputa, task_outputbs, task_lossa, task_lossesb]
-
-                if self.classification:
-                    if FLAGS.datasource in NLP_DATASETS:
-                        task_accuracya = tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputa), 1), labela)
-                    else:
-                        task_accuracya = tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputa), 1), tf.argmax(labela, 1))
-                    for j in range(num_updates):
-                        if FLAGS.datasource in NLP_DATASETS:
-                            task_accuraciesb.append(tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputbs[j]), 1), labelb))
-                        else:
-                            task_accuraciesb.append(tf.contrib.metrics.accuracy(tf.argmax(tf.nn.softmax(task_outputbs[j]), 1), tf.argmax(labelb, 1)))
-                    task_output.extend([task_accuracya, task_accuraciesb])
-
-                return task_output
-
-            if FLAGS.norm != 'None':
-                # to initialize the batch norm vars, might want to combine this, and not run idx 0 twice.
-                unused = task_metalearn((self.inputa[0], self.inputb[0], self.labela[0], self.labelb[0]), False)
-
-            out_dtype = [tf.float32, [tf.float32]*num_updates, tf.float32, [tf.float32]*num_updates]
-            if self.classification:
-                out_dtype.extend([tf.float32, [tf.float32]*num_updates])
-            result = tf.map_fn(task_metalearn, elems=(self.inputa, self.inputb, self.labela, self.labelb), dtype=out_dtype, parallel_iterations=FLAGS.meta_batch_size)
-            if self.classification:
-                outputas, outputbs, lossesa, lossesb, accuraciesa, accuraciesb = result
-            else:
-                outputas, outputbs, lossesa, lossesb  = result
-
-        ## Performance & Optimization
-        if 'train' in prefix:
-            self.total_loss1 = total_loss1 = tf.reduce_sum(lossesa) / tf.to_float(FLAGS.meta_batch_size)
-            self.total_losses2 = total_losses2 = [tf.reduce_sum(lossesb[j]) / tf.to_float(FLAGS.meta_batch_size) for j in range(num_updates)]
-            # after the map_fn
-            self.outputas, self.outputbs = outputas, outputbs
-            if self.classification:
-                self.total_accuracy1 = total_accuracy1 = tf.reduce_sum(accuraciesa) / tf.to_float(FLAGS.meta_batch_size)
-                self.total_accuracies2 = total_accuracies2 = [tf.reduce_sum(accuraciesb[j]) / tf.to_float(FLAGS.meta_batch_size) for j in range(num_updates)]
-            #self.debug_grads = tf.gradients(total_loss1, [self.weights['w2'], self.weights['text_cell_forw_0_w']])
-            self.pretrain_op = tf.train.AdamOptimizer(self.meta_lr).minimize(total_loss1)
-            #self.pretrain_op = tf.train.GradientDescentOptimizer(0.01*self.meta_lr).minimize(total_loss1)
-
-            if FLAGS.metatrain_iterations > 0:
-                optimizer = tf.train.AdamOptimizer(self.meta_lr)
-                self.gvs = gvs = optimizer.compute_gradients(self.total_losses2[FLAGS.num_updates-1])
-                if FLAGS.datasource == 'miniimagenet':
-                    gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs]
-                self.metatrain_op = optimizer.apply_gradients(gvs)
-        else:
-            self.metaval_total_loss1 = total_loss1 = tf.reduce_sum(lossesa) / tf.to_float(FLAGS.meta_batch_size)
-            self.metaval_total_losses2 = total_losses2 = [tf.reduce_sum(lossesb[j]) / tf.to_float(FLAGS.meta_batch_size) for j in range(num_updates)]
-            if self.classification:
-                self.metaval_total_accuracy1 = total_accuracy1 = tf.reduce_sum(accuraciesa) / tf.to_float(FLAGS.meta_batch_size)
-                self.metaval_total_accuracies2 = total_accuracies2 =[tf.reduce_sum(accuraciesb[j]) / tf.to_float(FLAGS.meta_batch_size) for j in range(num_updates)]
-
-        ## Summaries
-        tf.summary.scalar(prefix+'Pre-update loss', total_loss1)
-        if self.classification:
-            tf.summary.scalar(prefix+'Pre-update accuracy', total_accuracy1)
-
-        for j in range(num_updates):
-            tf.summary.scalar(prefix+'Post-update loss, step ' + str(j+1), total_losses2[j])
-            if self.classification:
-                tf.summary.scalar(prefix+'Post-update accuracy, step ' + str(j+1), total_accuracies2[j])
 
     ### Network construction functions (fc networks and conv networks)
     def construct_fc_weights(self):
@@ -760,21 +624,16 @@ class MAML:
         weightsa_keys = [k for k in weights.keys() if k not in not_in_weightsa_keys]
         weightsb_keys = [k for k in weights.keys() if k not in not_in_weightsb_keys]
 
-        weightsa = dict(zip(weightsa_keys,[weights[k] for k in weightsa_keys]))
-        weightsb = dict(zip(weightsb_keys,[weights[k] for k in weightsb_keys]))
-
-        return weights, weightsa, weightsb
+        return weights, weightsa_keys, weightsb_keys
 
     def forward_1input_rnn_usl(self, inp, weights, reuse=False, scope='', is_train=True, task="main", max_len=None):
+        #For all the batch sequence, assume the default dimension permuation is [seq_len, batch, real_dim]
         cells = dict()
         keep_prob = 1-FLAGS.dropout_rate
 
         cells['text_cell_forw'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
         cells['text_cell_back'] = [rnncell(self.dim_hidden) for _ in range(self.num_layers)]
 
-        #print(weights)
-        #print(type(weights))
-        #first update the weights of all the rnn cells
         for k in self.cells.keys():
             for n in range(self.num_layers):
                     cells[k][n].update_weights(weights[k+"_%d_"%n+"w"], weights[k+"_%d_"%n+"b"])
@@ -783,34 +642,23 @@ class MAML:
 
         text_tok, text_len = inp
 
-        text_vec = tf.nn.embedding_lookup(weights['emb'], text_tok)
-        #print(text_vec.shape)
+        text_vec = batch_embedding_lookup(weights['emb'], text_tok)
 
-        batch_size = tf.shape(text_vec)[0]
-        max_text_len = tf.shape(text_vec)[1]
+        batch_size = tf.shape(text_vec)[1]
+        max_text_len = tf.shape(text_vec)[0]
 
         output = text_vec
         if FLAGS.use_static_rnn:
-            #output = tf.transpose(output, [1,0,2])
-            #output = tf.reshape(output, [-1, self.dim_emb])
-            #output = tf.split(output, self.max_len)
-            output = convert_tensor_to_list(output, max_len, self.dim_emb)
+            text_vec = tf.transpose(text_vec, perm=[1,0,2])
+            output = tf.unstack(text_vec, num=max_len)
         for n in range(self.num_layers):
             cell_fw = cells['text_cell_forw'][n]
             cell_bw = cells['text_cell_back'][n]
 
             state_fw = cell_fw.zero_state(self.batch_size, tf.float32)
             state_bw = cell_bw.zero_state(self.batch_size, tf.float32)
-            #print("OUTPUT.SHAPE:")
-            #print(output.shape)
-            if not FLAGS.use_static_rnn:
-                (output_fw, output_bw), last_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, output, sequence_length=text_len, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_text_'+str(n), dtype = tf.float32)
-                #output = output_fw + output_bw
-                output = tf.concat([output_fw, output_bw], axis=-1)
-            else:
-                #The sequence_length parameter here is not used in order to avoid using tf.while 
-                #output, last_fw, last_bw = tf.nn.static_bidirectional_rnn(cell_fw, cell_bw, output, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_text_'+str(n), dtype = tf.float32)
-                output, output_fw_l, output_bw_l = my_static_bidirectional_rnn(cell_fw, cell_bw, output, sequence_length=text_len, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_text_'+str(n), dtype = tf.float32)
+            #The sequence_length parameter here is not used in order to avoid using tf.while 
+            output, output_fw_l, output_bw_l = my_static_bidirectional_rnn(cell_fw, cell_bw, output, sequence_length=text_len, initial_state_fw = state_fw, initial_state_bw = state_bw, scope = 'BLSTM_text_'+str(n), dtype = tf.float32)
             if (n==self.num_layers-2) and (FLAGS.num_attn_head > 0):
                 if FLAGS.use_static_rnn:
                     output = convert_list_to_tensor(output)
@@ -822,36 +670,33 @@ class MAML:
             text_hidden = tf.concat([last_fw.h, last_bw.h], axis = -1)
         else:
             output_fw = convert_list_to_tensor(output_fw_l)
-            batch_idx = tf.reshape(tf.range(FLAGS.update_batch_size, dtype=tf.int64), [-1,1])
+            batch_idx = tf.reshape(tf.range(self.batch_size, dtype=tf.int64), [-1,1])
             text_len_idx = tf.reshape(text_len, [-1,1])
             fw_idx = tf.concat([batch_idx, text_len_idx-1], axis=-1)
             last_fw = tf.gather_nd(output_fw, fw_idx)
             
             output_bw = convert_list_to_tensor(output_bw_l)
-            zero_idx = tf.zeros((FLAGS.update_batch_size,1),dtype=tf.int64)
+            zero_idx = tf.zeros((self.batch_size,1),dtype=tf.int64)
             bw_idx = tf.concat([batch_idx,zero_idx], axis=-1)
             last_bw = tf.gather_nd(output_bw, bw_idx)
             text_hidden = tf.concat([last_fw, last_bw], axis=-1)
 
-            #last_fw = tf.gather()
-        #text_hidden = tf.concat([output[:,0,:],output[:,-1,:]],axis=-1)
-        #if FLAGS.use_static_rnn:
-            #output = tf.convert_to_tensor(output)
-            #output_fw, output_bw = tf.split(output, 2, axis=-1)
-
         if task=="aux":
-            output_fw = tf.reshape(output_fw, [-1, self.dim_hidden])
-            output_bw = tf.reshape(output_bw, [-1, self.dim_hidden])
+            #output_fw = tf.reshape(output_fw, [-1, self.dim_hidden])
+            #output_bw = tf.reshape(output_bw, [-1, self.dim_hidden])
+            #output_fw = tf.transpose(output_fw, perm=[1,0,2])
+            #output_bw = tf.transpose(output_bw, perm=[1,0,2])
             
             if not FLAGS.bind_embedding_softmax:
-                logits_fw = tf.matmul(output_fw, weights['w_sm_forw']) + weights['b_sm_forw']
-                logits_bw = tf.matmul(output_bw, weights['w_sm_back']) + weights['b_sm_back']
+                logits_fw = tf.matmul(output_fw, weights['w_sm_forw']) + tf.expand_dims(weights['b_sm_forw'], axis=1)
+                logits_bw = tf.matmul(output_bw, weights['w_sm_back']) + tf.expand_dims(weights['b_sm_back'], axis=1)
             else:
-                w_sm = tf.transpose(weights['emb'])
+                w_sm = tf.transpose(weights['emb'],perm=[0,2,1])
+                #w_sm = tf.transpose(weights['emb'])
                 logits_fw = tf.matmul(output_fw, w_sm)
                 logits_bw = tf.matmul(output_bw, w_sm)
-            logits_fw = tf.reshape(logits_fw, [batch_size, max_text_len, self.vocab_size])
-            logits_bw = tf.reshape(logits_bw, [batch_size, max_text_len, self.vocab_size])
+            #logits_fw = tf.reshape(logits_fw, [batch_size, max_text_len, self.vocab_size])
+            #logits_bw = tf.reshape(logits_bw, [batch_size, max_text_len, self.vocab_size])
 
             max_text_len = tf.shape(text_tok)[1]
             text_mask = tf.sequence_mask(text_len, max_text_len)
@@ -859,12 +704,10 @@ class MAML:
             mask_logits_bw = tf.sequence_mask(text_len, max_text_len)
             return (logits_fw, logits_bw), (mask_logits_fw, mask_logits_bw)
         elif task == "main":
-
-
-            cat_hidden_2 = normalize(tf.matmul(text_hidden, weights['w1']) + weights['b1'], activation=tf.nn.relu, reuse=reuse, scope="main_f_1")
+            cat_hidden_2 = normalize(batch_matmul(text_hidden, weights['w1']) + weights['b1'], activation=tf.nn.relu, reuse=reuse, scope="main_f_1")
             if is_train:
                 cat_hidden_2 = tf.nn.dropout(cat_hidden_2, keep_prob)
-            final_output = tf.matmul(cat_hidden_2, weights['w2']) + weights['b2']
+            final_output = batch_matmul(cat_hidden_2, weights['w2']) + weights['b2']
             #final_output = tf.Print(final_output, [final_output])
             return final_output
 
