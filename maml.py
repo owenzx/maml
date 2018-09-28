@@ -122,18 +122,31 @@ class MAML:
                     grads = [tf.stop_gradient(grad) for grad in grads]
                 gradients = dict(zip(w.keys(), grads))
 
-                def get_weight(key, weightsa_keys, weightsb_keys):
+                def get_weight(we,key, weightsa_keys, weightsb_keys):
                     if key not in weightsa_keys:
-                        return w[key]
+                        return we[key]
                     if key!='emb':
-                        return  w[key] - self.update_lr*gradients[key] 
+                        return  we[key] - self.update_lr*gradients[key] 
                     else:
-                        return w[key] - self.update_lr*tf.convert_to_tensor(gradients[key])
-
-                fast_weights = dict(zip(weightsb_keys, [get_weight(key, weightsa_keys, weightsb_keys) for key in weightsb_keys]))
+                        return we[key] - self.update_lr*tf.convert_to_tensor(gradients[key])
+                fast_weights = dict(zip(w.keys(), [get_weight(w, key, weightsa_keys, weightsb_keys) for key in w.keys()]))
                 output = self.forward(inputb, fast_weights, reuse=True, is_train = is_train, task="main", max_len=max_len)
                 task_outputbs.append(output)
                 task_lossesb.append(self.real_loss_func(output, labelb))
+
+                for j in range(num_updates-1):
+                    task_outputa, mask= self.forward(inputa, fast_weights, reuse=reuse, is_train=is_train, task="aux", max_len = max_len)
+                    loss = self.aux_loss_func(task_outputa, labela, mask)
+                    grads = tf.gradients(loss, list(fast_weights.values()), aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
+                    if FLAGS.stop_grad:
+                        grads = [tf.stop_gradient(grad) for grad in grads]
+                    gradients = dict(zip(fast_weights.keys(), grads))
+                    fast_weights = dict(zip(fast_weights.keys(), [get_weight(fast_weights, key, weightsa_keys, weightsb_keys) for key in fast_weights.keys()]))
+                    output = self.forward(inputb, fast_weights, reuse=True, is_train = is_train, task="main", max_len=max_len)
+                    task_outputbs.append(output)
+                    task_lossesb.append(self.real_loss_func(output, labelb))
+
+                    
 
                 #Now first suppose only one aux task
                 task_output = [task_outputa, task_outputbs, task_lossa,task_lossesb]
