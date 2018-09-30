@@ -89,10 +89,13 @@ class MAML:
 
     
     def construct_model_batch(self, input_tensors=None, prefix='metatrain_', max_len=0):
+
+        
         self.inputa = input_tensors['inputa']
         self.inputb = input_tensors['inputb']
         self.labela, _ = input_tensors['labela']
         self.labelb = input_tensors['labelb']
+
 
         with tf.variable_scope('model', reuse=None) as training_scope:
             if 'weights' in dir(self):
@@ -106,9 +109,16 @@ class MAML:
             lossesa, outputas, lossesb, outputbs = [], [], [], []
             accuraciesa, accuraciesb = [], []
             num_updates = max(self.test_num_updates, FLAGS.num_updates)
+            print("NUM_UPDATES: %d"%num_updates)
             outputbs = [[]]*num_updates
             lossesb = [[]]*num_updates
             accuraciesb = [[]]*num_updates
+
+            self.update_lrs = [[]]*num_updates
+            ini = tf.constant_initializer(self.update_lr)
+            for i in range(num_updates):
+                self.update_lrs[i] = tf.get_variable("update_lr_%d"%i, [], initializer=ini, trainable=True)
+
 
             def task_metalearn(inputa, inputb, labela, labelb, w, reuse=True, is_train=True):
                 task_outputbs, task_lossesb = [], []
@@ -122,14 +132,14 @@ class MAML:
                     grads = [tf.stop_gradient(grad) for grad in grads]
                 gradients = dict(zip(w.keys(), grads))
 
-                def get_weight(we,key, weightsa_keys, weightsb_keys):
+                def get_weight(we,key, weightsa_keys, weightsb_keys, lr):
                     if key not in weightsa_keys:
                         return we[key]
                     if key!='emb':
-                        return  we[key] - self.update_lr*gradients[key] 
+                        return  we[key] - lr*gradients[key] 
                     else:
-                        return we[key] - self.update_lr*tf.convert_to_tensor(gradients[key])
-                fast_weights = dict(zip(w.keys(), [get_weight(w, key, weightsa_keys, weightsb_keys) for key in w.keys()]))
+                        return we[key] - lr*tf.convert_to_tensor(gradients[key])
+                fast_weights = dict(zip(w.keys(), [get_weight(w, key, weightsa_keys, weightsb_keys, self.update_lrs[0]) for key in w.keys()]))
                 output = self.forward(inputb, fast_weights, reuse=True, is_train = is_train, task="main", max_len=max_len)
                 task_outputbs.append(output)
                 task_lossesb.append(self.real_loss_func(output, labelb))
@@ -141,7 +151,7 @@ class MAML:
                     if FLAGS.stop_grad:
                         grads = [tf.stop_gradient(grad) for grad in grads]
                     gradients = dict(zip(fast_weights.keys(), grads))
-                    fast_weights = dict(zip(fast_weights.keys(), [get_weight(fast_weights, key, weightsa_keys, weightsb_keys) for key in fast_weights.keys()]))
+                    fast_weights = dict(zip(fast_weights.keys(), [get_weight(fast_weights, key, weightsa_keys, weightsb_keys, self.update_lrs[j+1]) for key in fast_weights.keys()]))
                     output = self.forward(inputb, fast_weights, reuse=True, is_train = is_train, task="main", max_len=max_len)
                     task_outputbs.append(output)
                     task_lossesb.append(self.real_loss_func(output, labelb))
