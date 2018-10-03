@@ -95,7 +95,9 @@ def xent_onehot(logits, labels):
 
 def read_pretrained_embeddings():
     PAD_TOKEN = 0
-    word2idx = {'PAD': PAD_TOKEN}
+    BOS_TOKEN = 1
+    EOS_TOKEN = 2
+    word2idx = {'PAD': PAD_TOKEN, 'BOS': BOS_TOKEN, 'EOS': EOS_TOKEN}
     weights = []
     with open(FLAGS.pretrain_embedding_path, 'r') as file:
         for index, line in enumerate(file):
@@ -107,7 +109,8 @@ def read_pretrained_embeddings():
             if index + 1 == FLAGS.vocab_size:
                 break
     dim_emb = len(weights[0])
-    weights.insert(0,np.random.randn(dim_emb))
+    for _ in range(3):
+        weights.insert(0,np.random.randn(dim_emb))
 
     UNK_TOKEN = len(weights)
     word2idx['UNK'] = UNK_TOKEN

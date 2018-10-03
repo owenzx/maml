@@ -113,6 +113,8 @@ flags.DEFINE_integer('dim_emb', 200, 'the dimension of the embedding')
 
 flags.DEFINE_bool('batch_mode', True, 'whether use batch to do everything')
 
+flags.DEFINE_string('aux_task', 'lm', 'determine what kind of auxiliary task to use')
+
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100
     SAVE_INTERVAL = 1000
@@ -416,6 +418,9 @@ def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0
 
     saver.save(sess, FLAGS.logdir + '/' + exp_string +  '/model' + str(itr))
 
+
+
+
 def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
     SUMMARY_INTERVAL = 1
     SAVE_INTERVAL = 1
@@ -451,7 +456,7 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
         while True:
             try:
                 if epoch < FLAGS.pretrain_epochs:
-                    pass
+                    input_tensors = [model.main_pretrain_op, model.aux_pretrain_op]
                 else:
                     input_tensors = [model.metatrain_op]
                 itr += 1
@@ -459,28 +464,45 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
                     print(itr)
 
                 if epoch < FLAGS.pretrain_epochs:
-                    pass
+                    input_tensors.extend([model.main_pretrain_loss, model.aux_pretrain_loss])
+                    if model.classification:
+                        input_tensors.extend([model.main_pretrain_acc])                
                 else:
                     input_tensors.extend([model.total_loss1, model.total_losses2[FLAGS.num_updates-1]])
                     if model.classification:
                         input_tensors.extend([model.total_accuracies2[FLAGS.num_updates-1]])                
                 result = sess.run(input_tensors, feed_dict=feed_dict)
-                auxlosses.append(result[1])
-                reallosses.append(result[2])
-                if model.classification:
-                    realacces.append(result[-1])                
+                if epoch < FLAGS.pretrain_epochs:
+                    auxlosses.append(result[3])
+                    reallosses.append(result[2])
+                    if model.classification:
+                        realacces.append(result[-1])                
+                else:
+                    auxlosses.append(result[1])
+                    reallosses.append(result[2])
+                    if model.classification:
+                        realacces.append(result[-1])                
 
             except tf.errors.OutOfRangeError:
                 break
 
         if epoch % PRINT_INTERVAL == 0:
-            print_str = 'Epoch ' + str(epoch - FLAGS.pretrain_epochs)
-            if model.classification:
-                print_str += 'aux loss: ' + str(np.mean(auxlosses)) + ', real loss: ' + str(np.mean(reallosses)) + ', real acc: ' + str(np.mean(realacces))
+            if epoch < FLAGS.pretrain_epochs:
+                print_str = 'Pretrain Epoch ' + str(epoch)
+                if model.classification:
+                    print_str += 'aux loss: ' + str(np.mean(auxlosses)) + ', real loss: ' + str(np.mean(reallosses)) + ', real acc: ' + str(np.mean(realacces))
+                else:
+                    print_str += 'aux loss: ' + str(np.mean(auxlosses)) + ', real loss: ' + str(np.mean(reallosses))
+                print(print_str)
+                sys.stdout.flush()
             else:
-                print_str += 'aux loss: ' + str(np.mean(auxlosses)) + ', real loss: ' + str(np.mean(reallosses))
-            print(print_str)
-            sys.stdout.flush()
+                print_str = 'Epoch ' + str(epoch - FLAGS.pretrain_epochs)
+                if model.classification:
+                    print_str += 'aux loss: ' + str(np.mean(auxlosses)) + ', real loss: ' + str(np.mean(reallosses)) + ', real acc: ' + str(np.mean(realacces))
+                else:
+                    print_str += 'aux loss: ' + str(np.mean(auxlosses)) + ', real loss: ' + str(np.mean(reallosses))
+                print(print_str)
+                sys.stdout.flush()
 
             auxlosses, reallosses, realacces = [], [], []
 
@@ -497,10 +519,16 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
                         data_generator.handle_label: handles[1]}
             while True:
                 try:
-                    if model.classification:
-                        input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1], model.metaval_total_accuracies2[FLAGS.num_updates-1]]
+                    if epoch < FLAGS.pretrain_epochs:
+                        if model.classification:
+                            input_tensors = [model.aux_pretrain_loss, model.main_pretrain_loss, model.main_pretrain_acc]
+                        else:
+                            input_tensors = [model.aux_pretrain_loss, model.main_pretrain_loss]
                     else:
-                        input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1]]
+                        if model.classification:
+                            input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1], model.metaval_total_accuracies2[FLAGS.num_updates-1]]
+                        else:
+                            input_tensors = [model.metaval_total_loss1, model.metaval_total_losses2[FLAGS.num_updates-1]]
                     result = sess.run(input_tensors, feed_dict=feed_dict)
                     test_auxlosses.append(result[0])
                     test_reallosses.append(result[1])
@@ -511,10 +539,16 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
                 except tf.errors.OutOfRangeError:
                     break
                 
-            if model.classification:
-                print('Validation results: aux loss: ' + str(np.mean(test_auxlosses)) + ', real loss: ' + str(np.mean(test_reallosses)) + ', real acc: ' + str(np.mean(test_realacces)))
+            if epoch < FLAGS.pretrain_epochs:
+                if model.classification:
+                    print('Validation results: aux loss: ' + str(np.mean(test_auxlosses)) + ', real loss: ' + str(np.mean(test_reallosses)) + ', real acc: ' + str(np.mean(test_realacces)))
+                else:
+                    print('Validation results: aux loss: ' + str(np.mean(test_auxlosses)) + ', real loss: ' + str(np.mean(test_reallosses)))
             else:
-                print('Validation results: aux loss: ' + str(np.mean(test_auxlosses)) + ', real loss: ' + str(np.mean(test_reallosses)))
+                if model.classification:
+                    print('Validation results: aux loss: ' + str(np.mean(test_auxlosses)) + ', real loss: ' + str(np.mean(test_reallosses)) + ', real acc: ' + str(np.mean(test_realacces)))
+                else:
+                    print('Validation results: aux loss: ' + str(np.mean(test_auxlosses)) + ', real loss: ' + str(np.mean(test_reallosses)))
             sys.stdout.flush()
             test_auxlosses, test_reallosses, test_realacces = [], [], []
 
@@ -799,6 +833,7 @@ def main():
     if FLAGS.pretrain_embedding!='none':
         model.set_pretrain_embedding(weights_emb, word2idx)
     if FLAGS.task == "usl_adapt": 
+        assert(FLAGS.aux_task in AUX_TASKS)
         model.construct_model(input_tensors=input_tensors, prefix = "train+val", max_len = max_len)
     else:
         if FLAGS.train or not tf_data_load:
