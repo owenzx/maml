@@ -217,7 +217,6 @@ class MAML:
         if self.classification:
             self.total_accuracies2 = total_accuracies2 = [tf.reduce_sum(accuraciesb[j]) for j in range(num_updates)]
 #            self.pretrain_op = tf.train.AdamOptimizer(self.meta_lr).minimize(total_loss1)
-        #TODO: create new pretrain_op
         
         if FLAGS.pretrain_epochs > 0:
 
@@ -658,7 +657,7 @@ class MAML:
             weights['text_cell_back_%d_w'%i], weights['text_cell_back_%d_b'%i] = c.weights
         #print([type(weights[c]) for c in weights.keys()])
         
-        if FLAGS.num_attn_head > 0:
+        if FLAGS.num_attn_head > 0 and self.num_layers>1:
             weights["text_self_att_q"] = tf.get_variable("text_self_att_q", [2*self.dim_hidden, 2*self.dim_hidden])
             weights["text_self_att_k"] = tf.get_variable("text_self_att_k", [2*self.dim_hidden, 2*self.dim_hidden])
             weights["text_self_att_v"] = tf.get_variable("text_self_att_v", [2*self.dim_hidden, 2*self.dim_hidden])
