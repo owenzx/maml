@@ -117,6 +117,8 @@ flags.DEFINE_string('aux_task', 'lm', 'determine what kind of auxiliary task to 
 
 flags.DEFINE_bool('decoder_attention', False, 'whether use attention on decoder')
 
+flags.DEFINE_bool('meta_after_pre', False, 'Set to True when want to start meta-training after pre-training')
+
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100
     SAVE_INTERVAL = 1000
@@ -424,6 +426,15 @@ def train_dataset(model, saver, sess, exp_string, data_generator, resume_epoch=0
 
 
 def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
+    if FLAGS.pretrain_epochs>0 and FLAGS.metatrain_epochs>0:
+        print("WARNING! Doing both pretrain and metatrain will consume a huge amount of memroy")
+    elif FLAGS.pretrain_epochs>0:
+        print("PRETRAIN MODE")
+    elif FLAGS.metatrain_epochs>0:
+        print("MEATRAIN MODE")
+        if FLAGS.meta_after_pre:
+            resume_epoch = 0
+
     SUMMARY_INTERVAL = 1
     SAVE_INTERVAL = 1
 
@@ -553,8 +564,12 @@ def train_usl(model, saver, sess, exp_string, data_generator, resume_epoch=0):
                     print('Validation results: aux loss: ' + str(np.mean(test_auxlosses)) + ', real loss: ' + str(np.mean(test_reallosses)))
             sys.stdout.flush()
             test_auxlosses, test_reallosses, test_realacces = [], [], []
-
-    saver.save(sess, FLAGS.logdir + '/' + exp_string +  '/model' + str(itr))
+    if FLAGS.metatrain_epochs>0 and FLAGS.pretrain_epochs>0:
+        saver.save(sess, FLAGS.logdir + '/' + exp_string +  '/model' + str(itr))
+    elif FLAGS.pretrain_epochs>0:
+        saver.save(sess, FLAGS.logdir + '/' + exp_string +  '/pretrain_model' + str(itr))
+    elif FLAGS.metatrain_epochs>0:
+        saver.save(sess, FLAGS.logdir + '/' + exp_string +  '/metatrain_model' + str(itr))
 
 def test_usl(model, saver, sess, exp_string, data_generator):
     pass
@@ -863,10 +878,11 @@ def main():
 
     exp_string = 'cls_'+str(FLAGS.num_classes)+'.mbs_'+str(FLAGS.meta_batch_size) + '.ubs_' + str(FLAGS.train_update_batch_size) + '.numstep' + str(FLAGS.num_updates) + '.updatelr' + str(FLAGS.train_update_lr)
 
-    if FLAGS.num_filters != 64:
-        exp_string += 'hidden' + str(FLAGS.num_filters)
-    if FLAGS.max_pool:
-        exp_string += 'maxpool'
+    exp_string += 'hidden' + str(FLAGS.hidden_dim)
+    exp_string += 'dropout' + str(FLAGS.dropout_rate)
+    exp_string += 'aux_task' + str(FLAGS.aux_task)
+    exp_string += 'num_attn_head' + str(FLAGS.num_attn_head)
+    exp_string += 'decoder_att' + str(FLAGS.decoder_attention)
     if FLAGS.stop_grad:
         exp_string += 'stopgrad'
     if FLAGS.baseline:
