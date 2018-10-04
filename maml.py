@@ -659,9 +659,9 @@ class MAML:
         #print([type(weights[c]) for c in weights.keys()])
         
         if FLAGS.num_attn_head > 0:
-            weights["text_self_att_q"] = tf.get_variable("text_self_att_q", [self.dim_hidden, self.dim_hidden])
-            weights["text_self_att_k"] = tf.get_variable("text_self_att_k", [self.dim_hidden, self.dim_hidden])
-            weights["text_self_att_v"] = tf.get_variable("text_self_att_v", [self.dim_hidden, self.dim_hidden])
+            weights["text_self_att_q"] = tf.get_variable("text_self_att_q", [2*self.dim_hidden, 2*self.dim_hidden])
+            weights["text_self_att_k"] = tf.get_variable("text_self_att_k", [2*self.dim_hidden, 2*self.dim_hidden])
+            weights["text_self_att_v"] = tf.get_variable("text_self_att_v", [2*self.dim_hidden, 2*self.dim_hidden])
         
         if FLAGS.aux_task == 'lm':
             if not FLAGS.bind_embedding_softmax:
@@ -679,6 +679,11 @@ class MAML:
                 not_in_weightsb_keys.extend(['decoder_cell_%d_w'%i, 'decoder_cell_%d_b'%i])
             weights['decoder_init_state_h_w']=tf.get_variable('decoder_init_state_h_w', [self.dim_hidden*2, self.dim_hidden], initializer=fc_initializer)
             weights['decoder_init_state_c_w']=tf.get_variable('decoder_init_state_c_w', [self.dim_hidden*2, self.dim_hidden], initializer=fc_initializer)
+            if FLAGS.decoder_attention and FLAGS.num_attn_head > 0:
+                weights["decoder_att_q"] = tf.get_variable("decoder_att_q", [self.dim_hidden, self.dim_hidden])
+                weights["decoder_att_k"] = tf.get_variable("decoder_att_k", [2*self.dim_hidden, self.dim_hidden])
+                weights["decoder_att_v"] = tf.get_variable("decoder_att_v", [2*self.dim_hidden, self.dim_hidden])
+                weights["decoder_att_w"] = tf.get_variable("decoder_att_w", [2*self.dim_hidden, self.dim_hidden])
 
         weightsa_keys = [k for k in weights.keys() if k not in not_in_weightsa_keys]
         weightsb_keys = [k for k in weights.keys() if k not in not_in_weightsb_keys]
@@ -713,6 +718,8 @@ class MAML:
 
         max_text_len = tf.shape(text_vec)[1]
 
+        text_mask = tf.sequence_mask(text_len, max_text_len)
+
         output = text_vec
         if FLAGS.use_static_rnn:
             text_vec = tf.transpose(text_vec, perm=[1,0,2])
@@ -728,9 +735,9 @@ class MAML:
             if (n==self.num_layers-2) and (FLAGS.num_attn_head > 0):
                 if FLAGS.use_static_rnn:
                     output = convert_list_to_tensor(output)
-                output = multihead_attention_no_var(output, output, num_units = self.dim_hidden , num_heads = FLAGS.num_attn_head, is_training=is_train, scope = "text_self_att", weights= weights, prefix = "text_self_att_")
+                output = multihead_attention_no_var(output, output, queries_mask=text_mask, keys_mask=text_mask, num_units = self.dim_hidden , num_heads = FLAGS.num_attn_head, is_training=is_train, scope = "text_self_att", weights= weights, prefix = "text_self_att_")
                 if FLAGS.use_static_rnn:
-                    output = convert_tensor_to_list(output)
+                    output = convert_tensor_to_list(output, max_len)
         if not FLAGS.use_static_rnn:
             last_fw, last_bw = last_state
             text_hidden = tf.concat([last_fw.h, last_bw.h], axis = -1)
@@ -777,8 +784,8 @@ class MAML:
                 #return (logits_fw, logits_bw), (mask_logits_fw, mask_logits_bw)
             elif FLAGS.aux_task=="auto_encoder":
                 init_state = batch_matmul(text_hidden_c,weights['decoder_init_state_c_w']), batch_matmul(text_hidden, weights['decoder_init_state_h_w'])
-                output_logits = decoder(init_state=init_state, att_vecs=output_fw+output_bw, weights=weights, reuse=reuse)
                 mask_logits = tf.sequence_mask(text_len, max_text_len)
+                output_logits = decoder(init_state=init_state, att_vecs=output, att_mask =mask_logits ,weights=weights, reuse=reuse)
                 #return output_logits, mask_logits
         elif (task == "main") or (task=="both"):
             cat_hidden_2 = normalize(batch_matmul(text_hidden, weights['w1']) + weights['b1'], activation=tf.nn.relu, reuse=reuse, scope="main_f_1")

@@ -281,9 +281,10 @@ def convert_list_to_tensor(l):
     t = tf.transpose(t, [1,0,2])
     return t
 
-def convert_tensor_to_list(t, max_len, dim):
+def convert_tensor_to_list(t, max_len):
     """Used to convert the format for dynamic rnn to the format for static rnn"""
     t = tf.transpose(t, [1,0,2])
-    t = tf.reshape(t, [-1, dim])
-    l = tf.split(t, max_len)
+    #t = tf.reshape(t, [-1, dim])
+    #l = tf.split(t, max_len)
+    l = tf.unstack(t, num=max_len)
     return l

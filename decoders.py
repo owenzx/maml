@@ -25,9 +25,10 @@ class lstm_att_decoder():
         self.cells = cells       
         self.max_len = max_len
         self.num_layers = len(self.cells)
+        self.use_attention = FLAGS.decoder_attention
         
 
-    def __call__(self, init_state, att_vecs, weights, reuse=None):
+    def __call__(self, init_state, att_vecs, att_mask, weights, reuse=None):
         out_seq =[[]] * self.max_len
         with tf.variable_scope('lstm_att_decoder', reuse=None):
             state = init_state
@@ -36,10 +37,19 @@ class lstm_att_decoder():
                 #print(output_label.shape)
                 cur_emb = batch_embedding_lookup_2(weights['emb'], output_label)
                 (output, state) = self.cells[0](cur_emb, state)
+                if self.use_attention:
+                    att = self.calc_attention_vec(output, att_vecs, att_mask, weights)
+                    output = batch_matmul(tf.concat([output, att],axis=-1), weights['decoder_att_w'])
                 w_sm = tf.transpose(weights['emb'], perm=[0,2,1])
                 logits = batch_matmul(output, w_sm)
                 out_seq[i] = logits
                 out_label = tf.argmax(logits, 1)
             out_seq_tensor = tf.transpose(tf.stack(out_seq), perm=[1,0,2])
         return out_seq_tensor
+
+    
+    def calc_attention_vec(self, h, att_vecs, att_mask, weights):
+        h = tf.expand_dims(h, axis=1)
+        att_vecs = tf.transpose(att_vecs, perm=[1,0,2])
+        return tf.squeeze(multihead_attention_no_var(h, att_vecs, keys_mask=att_mask, num_units=self.dim_hidden, num_heads=FLAGS.num_attn_head, is_training=True, scope="decoder_att", weights=weights, prefix="decoder_att_"))
 

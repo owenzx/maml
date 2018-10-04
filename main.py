@@ -115,6 +115,8 @@ flags.DEFINE_bool('batch_mode', True, 'whether use batch to do everything')
 
 flags.DEFINE_string('aux_task', 'lm', 'determine what kind of auxiliary task to use')
 
+flags.DEFINE_bool('decoder_attention', False, 'whether use attention on decoder')
+
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100
     SAVE_INTERVAL = 1000

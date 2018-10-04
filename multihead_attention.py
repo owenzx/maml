@@ -10,8 +10,13 @@ from __future__ import print_function
 import tensorflow as tf
 from batch_ops import batch_matmul
 
+from tensorflow.python.platform import flags
+FLAGS = flags.FLAGS
+
 def multihead_attention_no_var(queries, 
                         keys, 
+                        queries_mask=None,
+                        keys_mask=None,
                         num_units=None, 
                         num_heads=8, 
                         dropout_rate=0,
@@ -51,22 +56,22 @@ def multihead_attention_no_var(queries,
         queries_len = tf.shape(queries)[1]
         keys_len = tf.shape(keys)[1]
 
-        queries_flat = tf.reshape(queries,[batch_size*queries_len,-1])
-        keys_flat = tf.reshape(keys,[batch_size*keys_len,-1])
 
 
         if FLAGS.batch_mode:
-            Q = tf.nn.relu(batch_matmul(queries_flat, weights[prefix+"q"]))
-            K = tf.nn.relu(batch_matmul(keys_flat, weights[prefix+"k"]))
-            V = tf.nn.relu(batch_matmul(keys_flat, weights[prefix+"v"]))
+            Q = tf.nn.relu(tf.matmul(queries, weights[prefix+"q"]))
+            K = tf.nn.relu(tf.matmul(keys, weights[prefix+"k"]))
+            V = tf.nn.relu(tf.matmul(keys, weights[prefix+"v"]))
         else:
+            queries_flat = tf.reshape(queries,[batch_size*queries_len,-1])
+            keys_flat = tf.reshape(keys,[batch_size*keys_len,-1])
             Q = tf.nn.relu(tf.matmul(queries_flat, weights[prefix+"q"]))
             K = tf.nn.relu(tf.matmul(keys_flat, weights[prefix+"k"]))
             V = tf.nn.relu(tf.matmul(keys_flat, weights[prefix+"v"]))
 
-        Q = tf.reshape(Q, [batch_size, queries_len, num_units])
-        K = tf.reshape(K, [batch_size, keys_len, num_units])
-        V = tf.reshape(V, [batch_size, keys_len, num_units])
+            Q = tf.reshape(Q, [batch_size, queries_len, num_units])
+            K = tf.reshape(K, [batch_size, keys_len, num_units])
+            V = tf.reshape(V, [batch_size, keys_len, num_units])
 
         
         # Split and concat
@@ -76,7 +81,7 @@ def multihead_attention_no_var(queries,
 
         # Multiplication
         if FLAGS.batch_mode:
-            outputs = batch_matmul(Q_, tf.transpose(K_, [0, 2, 1])) # (h*N, T_q, T_k)
+            outputs = tf.matmul(Q_, tf.transpose(K_, [0, 2, 1])) # (h*N, T_q, T_k)
         else:
             outputs = tf.matmul(Q_, tf.transpose(K_, [0, 2, 1])) # (h*N, T_q, T_k)
         
@@ -85,12 +90,15 @@ def multihead_attention_no_var(queries,
         outputs = outputs / (tf.sqrt(K_dim_float))
         
         # Key Masking
-        key_masks = tf.sign(tf.abs(tf.reduce_sum(keys, axis=-1))) # (N, T_k)
+        if keys_mask is not None:
+            key_masks = keys_mask
+        else:
+            key_masks = tf.sign(tf.abs(tf.reduce_sum(keys, axis=-1))) # (N, T_k)
         key_masks = tf.tile(key_masks, [num_heads, 1]) # (h*N, T_k)
         key_masks = tf.tile(tf.expand_dims(key_masks, 1), [1, tf.shape(queries)[1], 1]) # (h*N, T_q, T_k)
         
         paddings = tf.ones_like(outputs)*(-2**32+1)
-        outputs = tf.where(tf.equal(key_masks, 0), paddings, outputs) # (h*N, T_q, T_k)
+        outputs = tf.where(tf.equal(tf.cast(key_masks,dtype=tf.int32), 0), paddings, outputs) # (h*N, T_q, T_k)
   
         # Causality = Future blinding
         if causality:
@@ -105,17 +113,21 @@ def multihead_attention_no_var(queries,
         outputs = tf.nn.softmax(outputs) # (h*N, T_q, T_k)
          
         # Query Masking
-        query_masks = tf.sign(tf.abs(tf.reduce_sum(queries, axis=-1))) # (N, T_q)
+        if queries_mask is not None:
+            query_masks = queries_mask
+        else:
+            query_masks = tf.sign(tf.abs(tf.reduce_sum(queries, axis=-1))) # (N, T_q)
         query_masks = tf.tile(query_masks, [num_heads, 1]) # (h*N, T_q)
         query_masks = tf.tile(tf.expand_dims(query_masks, -1), [1, 1, tf.shape(keys)[1]]) # (h*N, T_q, T_k)
-        outputs *= query_masks # broadcasting. (N, T_q, C)
+        
+        outputs *= tf.cast(query_masks, dtype=tf.float32) # broadcasting. (N, T_q, C)
           
         # Dropouts
         outputs = tf.layers.dropout(outputs, rate=dropout_rate, training=tf.convert_to_tensor(is_training))
                
         # Weighted sum
         if FLAGS.batch_mode:
-            outputs = batch_matmul(outputs, V_) # ( h*N, T_q, C/h)
+            outputs = tf.matmul(outputs, V_) # ( h*N, T_q, C/h)
         else:
             outputs = tf.matmul(outputs, V_) # ( h*N, T_q, C/h)
         
