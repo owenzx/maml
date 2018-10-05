@@ -62,7 +62,7 @@ def my_static_bidirectional_rnn(cell_fw,
                 inputs,
                 initial_state_fw,
                 dtype,
-                sequence_length=sequence_length,
+                sequence_length=None,
                 scope=fw_scope)
 
         # Backward direction
@@ -73,7 +73,7 @@ def my_static_bidirectional_rnn(cell_fw,
                 reversed_inputs,
                 initial_state_bw,
                 dtype,
-                sequence_length=sequence_length,
+                sequence_length=None,
                 scope=bw_scope)
 
     output_bw = _reverse_seq(tmp, sequence_length)
