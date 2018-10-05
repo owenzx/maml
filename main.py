@@ -87,7 +87,7 @@ flags.DEFINE_string('pretrain_embedding', 'none', 'what kind of pretrained word 
 flags.DEFINE_integer('vocab_size', 40000, 'the size of vocabulary, default set to 40000, which is a common setting for GloVe')
 flags.DEFINE_string('pretrain_embedding_path', '', 'the path of the pretrained embedding file')
 
-flags.DEFINE_integer('gpu_id', -1, 'the id of the gpu to use')
+flags.DEFINE_string('gpu_id', "-1", 'the id of the gpu to use')
 
 flags.DEFINE_string('absa_domain', 'restaurant', 'specific domain of the absa dataset')
 flags.DEFINE_string('model', 'bidaf', 'choose the model used in nlp experiments')
@@ -118,6 +118,8 @@ flags.DEFINE_string('aux_task', 'lm', 'determine what kind of auxiliary task to 
 flags.DEFINE_bool('decoder_attention', False, 'whether use attention on decoder')
 
 flags.DEFINE_bool('meta_after_pre', False, 'Set to True when want to start meta-training after pre-training')
+
+flags.DEFINE_integer('gpu_num',1, 'the number of GPUs to use')
 
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     SUMMARY_INTERVAL = 100
@@ -712,13 +714,16 @@ def test_dataset(model, saver, sess, exp_string, data_generator, test_num_update
     
 
 def main():
-    print(FLAGS.gpu_id)
-    if FLAGS.gpu_id == -1:
+    #print(FLAGS.gpu_id)
+    gpu_ids = [int(x) for x in FLAGS.gpu_id.split(',')]
+    print(gpu_ids)
+    if FLAGS.gpu_id[0] == -1:
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
-    elif FLAGS.gpu_id == -2:
+    elif FLAGS.gpu_id[0] == -2:
         pass
     else:
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu_id)
+        os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.gpu_id
+        assert(FLAGS.gpu_num==len(gpu_ids))
 
     if FLAGS.TF_USE_CUDNN == True:
         pass

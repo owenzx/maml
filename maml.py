@@ -11,7 +11,7 @@ except KeyError as e:
 
 from tensorflow.python.platform import flags
 from tensorflow.python.ops.rnn import _reverse_seq #at least this can be imported for tensorflow 1.10
-from utils import mse, xent, conv_block, normalize, read_pretrained_embeddings, rnncell, build_cells, xent_onehot, bi_seq_xent, seq_xent, get_approx_2nd_grad, convert_list_to_tensor, convert_tensor_to_list
+from utils import mse, xent, conv_block, normalize, read_pretrained_embeddings, rnncell, build_cells, xent_onehot, bi_seq_xent, seq_xent, get_approx_2nd_grad, convert_list_to_tensor, convert_tensor_to_list, make_parallel
 from customized_cells import Customized_BasicLSTMCell
 from bidaf import BiAttention_no_var
 from multihead_attention import multihead_attention_no_var
@@ -102,6 +102,7 @@ class MAML:
         self.labelb = input_tensors['labelb']
 
 
+
         with tf.variable_scope('model', reuse=None) as training_scope:
             if 'weights' in dir(self):
                 training_scope.reuse_variables()
@@ -187,28 +188,43 @@ class MAML:
             def get_stacked_weights(weights):
                 stacked_w = dict()
                 for k,w in weights.items():
-                    stacked_w[k] = tf.stack([w for _ in range(FLAGS.meta_batch_size)])
+                    stacked_w[k] = tf.stack([w for _ in range(FLAGS.meta_batch_size/FLAGS.gpu_num)])
                 return stacked_w
 
 
 
-            #if FLAGS.norm != 'None':
-            #    # to initialize the batch norm vars, might want to combine this, and not run idx 0 twice.
-            #    unused = task_metalearn((self.inputa[0], self.inputb[0], self.labela[0], self.labelb[0]), False)
 
             out_dtype = [(tf.float32, tf.float32), [tf.float32]*num_updates, tf.float32, [tf.float32]*num_updates]
             if self.classification:
                 out_dtype.extend([[tf.float32]*num_updates])
-            w = get_stacked_weights(weights)
-            result = task_metalearn(self.inputa, self.inputb, self.labela, self.labelb, w)
-            if self.classification:
-                outputas, outputbs, lossesa, lossesb, accuraciesb = result
-            else:
-                outputas, outputbs, lossesa, lossesb  = result
+            def single_gpu_model(inputa, inputb, labela, labelb):
+                w = get_stacked_weights(self.weights)
+                result = task_metalearn(inputa, inputb, labela, labelb, w)
+                if self.classification:
+                    outputas, outputbs, lossesa, lossesb, accuraciesb = result
+                else:
+                    outputas, outputbs, lossesa, lossesb  = result
             
-            main_pretrain_loss, main_pretrain_acc = main_pretrain(self.inputb, self.labelb, w)
-            aux_pretrain_loss = aux_pretrain_freeze(self.inputa, self.labela, w)
+                main_pretrain_loss, main_pretrain_acc = main_pretrain(inputb, labelb, w)
+                aux_pretrain_loss = aux_pretrain_freeze(inputa, labela, w)
 
+                if FLAGS.metatrain_epochs>0:
+                    single_gpu_results = outputa, outputbs, lossesa, lossesb, accuraciesb
+                elif FLAGS.pretrain_epochs>0:
+                    single_gpu_results = main_pretrain_loss, main_pretrain_acc, aux_pretrain_loss
+                else:
+                    single_gpu_results=None
+
+            
+            return single_gpu_results
+
+
+
+        multi_gpu_results = make_parallel(single_gpu_model, FLAGS.gpu_num, inputa=self.inputa, inputb=self.inputb, labela=self.labela, labelb=self.labelb)
+        if FLAGS.metatrain_epochs>0:
+            outputa, outputbs, lossesa, lossesb, accuraciesb = multi_gpu_results
+        else:
+            main_pretrain_loss, main_pretrain_acc, aux_pretrain_loss = multi_gpu_results
         ## Performance & Optimization
         self.total_loss1 = total_loss1 = tf.reduce_sum(lossesa) / tf.to_float(FLAGS.meta_batch_size)
         self.total_losses2 = total_losses2 = [tf.reduce_sum(lossesb[j]) / tf.to_float(FLAGS.meta_batch_size) for j in range(num_updates)]
