@@ -3,10 +3,12 @@ import os
 import random
 import tensorflow as tf
 import numpy as np
+import time
 
 from tensorflow.contrib.layers.python import layers as tf_layers
 from tensorflow.python.platform import flags
 from customized_cells import Customized_BasicLSTMCell, Customized_LayerNormBasicLSTMCell
+
 
 FLAGS = flags.FLAGS
 
@@ -289,11 +291,29 @@ def convert_tensor_to_list(t, max_len):
     l = tf.unstack(t, num=max_len)
     return l
 
+def concat_parallel_outputs(out_split):
+    results=[]
+#    time.sleep(100)
+    for i,v in enumerate(zip(*out_split)):
+        if type(v[0]) is list:
+            #results.append([tf.concat([x[i] for x in v] ,axis=0) for i in range(len(v[0]))])
+            results.append([tf.stack([x[i] for x in v] ) for i in range(len(v[0]))])
+        elif type(v[0]) is tuple:
+            #results.append([tf.concat([x[i] for x in v] ,axis=0) for i in range(len(v[0]))])
+            results.append([tf.stack([x[i] for x in v] ) for i in range(len(v[0]))])
+        else:
+            #results.append(tf.concat(v, axis=0))
+            results.append(tf.stack(v))
+    return results
 
 def make_parallel(fn, num_gpus, **kwargs):
     in_splits = {}
     for k, v in kwargs.items():
-        in_splits[k] = tf.split(v, num_gpus)
+        if type(v) is tuple:
+            a, b = v
+            in_splits[k] = list(zip(tf.split(a, num_gpus),tf.split(b,num_gpus)))
+        else:
+            in_splits[k] = tf.split(v, num_gpus)
 
     out_split = []
     for i in range(num_gpus):
@@ -301,4 +321,5 @@ def make_parallel(fn, num_gpus, **kwargs):
             with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
                 out_split.append(fn(**{k : v[i] for k, v in in_splits.items()}))
 
-    return tf.concat(out_split, axis=0)
+    #return tf.concat(out_split, axis=0)
+    return concat_parallel_outputs(out_split)

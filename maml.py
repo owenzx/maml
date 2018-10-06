@@ -81,7 +81,7 @@ class MAML:
             self.dim_emb = FLAGS.dim_emb
             self.num_layers = FLAGS.num_rnn_layers
             if FLAGS.batch_mode:
-                self.batch_size = FLAGS.meta_batch_size
+                self.batch_size = FLAGS.meta_batch_size//FLAGS.gpu_num
             else:
                 self.batch_size = FLAGS.update_batch_size
             #Other hyper-parameters
@@ -188,7 +188,7 @@ class MAML:
             def get_stacked_weights(weights):
                 stacked_w = dict()
                 for k,w in weights.items():
-                    stacked_w[k] = tf.stack([w for _ in range(FLAGS.meta_batch_size/FLAGS.gpu_num)])
+                    stacked_w[k] = tf.stack([w for _ in range(FLAGS.meta_batch_size//FLAGS.gpu_num)])
                 return stacked_w
 
 
@@ -198,6 +198,14 @@ class MAML:
             if self.classification:
                 out_dtype.extend([[tf.float32]*num_updates])
             def single_gpu_model(inputa, inputb, labela, labelb):
+                lossesa, outputas, lossesb, outputbs = [], [], [], []
+                accuraciesa, accuraciesb = [], []
+                num_updates = max(self.test_num_updates, FLAGS.num_updates)
+                print("NUM_UPDATES: %d"%num_updates)
+                outputbs = [[]]*num_updates
+                lossesb = [[]]*num_updates
+                accuraciesb = [[]]*num_updates
+
                 w = get_stacked_weights(self.weights)
                 result = task_metalearn(inputa, inputb, labela, labelb, w)
                 if self.classification:
@@ -209,20 +217,19 @@ class MAML:
                 aux_pretrain_loss = aux_pretrain_freeze(inputa, labela, w)
 
                 if FLAGS.metatrain_epochs>0:
-                    single_gpu_results = outputa, outputbs, lossesa, lossesb, accuraciesb
+                    single_gpu_results = outputas, outputbs, lossesa, lossesb, accuraciesb
                 elif FLAGS.pretrain_epochs>0:
                     single_gpu_results = main_pretrain_loss, main_pretrain_acc, aux_pretrain_loss
                 else:
                     single_gpu_results=None
 
-            
-            return single_gpu_results
+                return single_gpu_results
 
 
 
         multi_gpu_results = make_parallel(single_gpu_model, FLAGS.gpu_num, inputa=self.inputa, inputb=self.inputb, labela=self.labela, labelb=self.labelb)
         if FLAGS.metatrain_epochs>0:
-            outputa, outputbs, lossesa, lossesb, accuraciesb = multi_gpu_results
+            outputas, outputbs, lossesa, lossesb, accuraciesb = multi_gpu_results
         else:
             main_pretrain_loss, main_pretrain_acc, aux_pretrain_loss = multi_gpu_results
         ## Performance & Optimization
