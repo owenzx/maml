@@ -207,18 +207,18 @@ class MAML:
                 accuraciesb = [[]]*num_updates
 
                 w = get_stacked_weights(self.weights)
-                result = task_metalearn(inputa, inputb, labela, labelb, w)
-                if self.classification:
-                    outputas, outputbs, lossesa, lossesb, accuraciesb = result
-                else:
-                    outputas, outputbs, lossesa, lossesb  = result
-            
-                main_pretrain_loss, main_pretrain_acc = main_pretrain(inputb, labelb, w)
-                aux_pretrain_loss = aux_pretrain_freeze(inputa, labela, w)
-
                 if FLAGS.metatrain_epochs>0:
+                    result = task_metalearn(inputa, inputb, labela, labelb, w)
+                    if self.classification:
+                        outputas, outputbs, lossesa, lossesb, accuraciesb = result
+                    else:
+                        outputas, outputbs, lossesa, lossesb  = result
+            
+
                     single_gpu_results = outputas, outputbs, lossesa, lossesb, accuraciesb
                 elif FLAGS.pretrain_epochs>0:
+                    main_pretrain_loss, main_pretrain_acc = main_pretrain(inputb, labelb, w)
+                    aux_pretrain_loss = aux_pretrain_freeze(inputa, labela, w)
                     single_gpu_results = main_pretrain_loss, main_pretrain_acc, aux_pretrain_loss
                 else:
                     single_gpu_results=None
