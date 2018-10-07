@@ -264,10 +264,13 @@ class MAML:
                 if FLAGS.clip_grad == True:
                     gvs = [(tf.clip_by_value(grad, -10, 10), var) for grad, var in gvs if grad is not None]
             self.metatrain_op = optimizer.apply_gradients(gvs)
-        self.metaval_total_loss1 = total_loss1 = tf.reduce_sum(lossesa) / tf.to_float(FLAGS.meta_batch_size)
-        self.metaval_total_losses2 = total_losses2 = [tf.reduce_sum(lossesb[j]) / tf.to_float(FLAGS.meta_batch_size) for j in range(num_updates)]
+        #self.metaval_total_loss1 = total_loss1 = tf.reduce_sum(lossesa) / tf.to_float(FLAGS.meta_batch_size)
+        self.metaval_total_loss1 = self.total_loss1
+        #self.metaval_total_losses2 = total_losses2 = [tf.reduce_sum(lossesb[j]) / tf.to_float(FLAGS.meta_batch_size) for j in range(num_updates)]
+        self.metaval_total_losses2 = self.total_losses2
         if self.classification:
-            self.metaval_total_accuracies2 = total_accuracies2 =[tf.reduce_sum(accuraciesb[j]) for j in range(num_updates)]
+            #self.metaval_total_accuracies2 = total_accuracies2 =[tf.reduce_sum(accuraciesb[j]) for j in range(num_updates)]
+            self.metaval_total_accuracies2 = self.total_accuracies2
 
         ## Summaries
         tf.summary.scalar(prefix+'Unsupervied auxilary task loss', total_loss1)
