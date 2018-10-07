@@ -120,10 +120,11 @@ class MAML:
             lossesb = [[]]*num_updates
             accuraciesb = [[]]*num_updates
 
-            self.update_lrs = [[]]*num_updates
-            ini = tf.constant_initializer(self.update_lr)
-            for i in range(num_updates):
-                self.update_lrs[i] = tf.get_variable("update_lr_%d"%i, [], initializer=ini, trainable=True)
+            #self.update_lrs = [[]]*num_updates
+            #ini = tf.constant_initializer(self.update_lr)
+            #for i in range(num_updates):
+            #    self.update_lrs[i] = tf.get_variable("update_lr_%d"%i, [], initializer=ini, trainable=True)
+            self.update_lrs = [self.update_lr]
 
             def main_pretrain(inputb, labelb, w, reuse=True, is_train=True):
                 output = self.forward(inputb, w, reuse=True, is_train=is_train, task="main", max_len=max_len)
