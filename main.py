@@ -717,10 +717,11 @@ def main():
     #print(FLAGS.gpu_id)
     gpu_ids = [int(x) for x in FLAGS.gpu_id.split(',')]
     print(gpu_ids)
-    if FLAGS.gpu_id[0] == -1:
+    if gpu_ids[0] == -1:
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
-    elif FLAGS.gpu_id[0] == -2:
+    elif gpu_ids[0] == -2:
         pass
+        #os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
     else:
         os.environ["CUDA_VISIBLE_DEVICES"] = FLAGS.gpu_id
         assert(FLAGS.gpu_num==len(gpu_ids))
