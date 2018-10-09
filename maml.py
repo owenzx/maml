@@ -239,7 +239,7 @@ class MAML:
         # after the map_fn
         self.outputas, self.outputbs = outputas, outputbs
         if self.classification:
-            self.total_accuracies2 = total_accuracies2 = [tf.reduce_sum(accuraciesb[j]) for j in range(num_updates)]
+            self.total_accuracies2 = total_accuracies2 = [tf.reduce_sum(accuraciesb[j])/tf.to_float(FLAGS.gpu_num) for j in range(num_updates)]
 #            self.pretrain_op = tf.train.AdamOptimizer(self.meta_lr).minimize(total_loss1)
         
         if FLAGS.pretrain_epochs > 0:
