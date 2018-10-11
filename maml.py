@@ -227,7 +227,6 @@ class MAML:
                 return single_gpu_results
 
 
-
         multi_gpu_results = make_parallel(single_gpu_model, FLAGS.gpu_num, inputa=self.inputa, inputb=self.inputb, labela=self.labela, labelb=self.labelb)
         if FLAGS.metatrain_epochs>0:
             outputas, outputbs, lossesa, lossesb, accuraciesb = multi_gpu_results
@@ -244,8 +243,8 @@ class MAML:
         
         if FLAGS.pretrain_epochs > 0:
 
-            main_optimizer = tf.train.AdamOptimizer()
-            aux_optimizer = tf.train.AdamOptimizer()
+            main_optimizer = tf.train.AdamOptimizer(self.meta_lr)
+            aux_optimizer = tf.train.AdamOptimizer(self.meta_lr)
             self.main_pretrain_loss = tf.reduce_sum(main_pretrain_loss) / tf.to_float(FLAGS.meta_batch_size)
             self.aux_pretrain_loss = tf.reduce_sum(aux_pretrain_loss) / tf.to_float(FLAGS.meta_batch_size)
             self.main_pretrain_op = main_optimizer.minimize(self.main_pretrain_loss)
